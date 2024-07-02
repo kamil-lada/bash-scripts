@@ -19,9 +19,9 @@ log "Installing common packages..."
 apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted > /dev/null 2>&1 || error "Failed to install common packages."
 
 log "Installing Zabbix Agent 2"
-wget wget https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 && dpkg -i dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1
-apt update > /dev/null 2>&1 && apt install zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1
-
+wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
+apt update > /dev/null 2>&1 && apt install zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install Zabbix Agent 2."
+rm zabbix-release_7.0-1+debian12* > /dev/null 2>&1
 cat <<EOL | sudo tee /etc/zabbix/zabbix-agent2.conf
 BufferSend=5
 BufferSize=100
@@ -176,7 +176,11 @@ systemctl restart ssh
 
 log "SSH configuration updated and service restarted."
 
-echo "IP: \4" | tee -a /ets/issue
+echo "IP: \4" | tee -a /etc/issue
 log "/etc/issue file modified."
+
+mkdir bash-scripts && cd bash-scripts && git clone https://github.com/kamil-lada/bash-scripts.git . > /dev/null 2>&1 && log "Scripts repo cloned." || error "Failed to clone scripts repo."
+
+rm -- "$0"
 
 log "VM preparation completed successfully."

@@ -11,9 +11,6 @@ error() {
     exit 1
 }
 
-public_ssh_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0bAoUF+dVoDyh/aIWfSFIeUivuZ5vcjkJjARCZpjGAj9cofEIuVaOC2VpccbXNJvXgq5F80zi4hW2lfFqEiUwMziwKNn/+7Joo+y9mmFLYjhnTeKeeTfIHI7ie+Pnham2VLlat3jmyZXoE9vKHkeIbVip5pGpGwzJaTOTBiQOgh9HI8CefswXJQs0LiRpuznnXF1Y3HhBZKbwZ8kkf/HaExoof470Wh923/zHH6JIpLbXjo2zDWjQxnbjJhlCEIhTEd+IRo4SREGqPTzd2EDDksOzDufcWNZJ4E8OWbdqC9m9knPCngw2GkF7WDScH/I6polgEZa04pGoXL2VdjMch/CSRKattsXeW9lbR6jxEgCQl57Xy1GVKaL2zhng8ny0536v4scdm/vCPZuqgIvKrn9IMmuCXEzX+WcZvxxyVZjI2kl9HoSLSZsrQKlBpFFKwwUBLzIgk04jkGeuIQrK/BfuOt+0oeIz6rKkVzvDryh+ksOww40py00yPT2sk2uFMjRqrcK6xf9PElQflLL6f1zlqOXBJ8z2/FnD6TWayQd2cUJD5N/Vwj5LMt1Wx/RuG3h9Kk1Im2692yKXVse+S0cquNl7erEKyOjRizg7SbP3jJlxS7zrWHfmvhVBWrkDv9K46X2FCKH3MgQlk16vOIk4J/0+8A7PEHQQ8nlIiw== laden@manjaro"
-
-
 # Install common packages
 log "Installing common packages..."
 apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted > /dev/null 2>&1 || error "Failed to install common packages."
@@ -37,8 +34,8 @@ LogFile=/var/log/zabbix/zabbix_agent2.log
 LogFileSize=0
 PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
-Server=zbx-prx-loc.babum.ovh
-ServerActive=zbx-prx-loc.babum.ovh
+Server=example.com
+ServerActive=example.com
 EOL
 
 systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2 && log "Zabbix installed successfully" || error "Failed to install Zabbix"
@@ -98,6 +95,45 @@ else
     chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
 fi
 
+# Path to the SSH configuration file
+SSH_CONFIG="/etc/ssh/sshd_config"
+
+# Backup the current SSH configuration file
+cp "$SSH_CONFIG" "${SSH_CONFIG}.bak"
+
+# Function to add or replace a configuration setting
+add_or_replace_setting() {
+    local setting="$1"
+    local value="$2"
+    local config_file="$3"
+    
+    if grep -q "^${setting}" "$config_file"; then
+        sed -i "s|^${setting}.*|${setting} ${value}|" "$config_file"
+    else
+        echo "${setting} ${value}" >> "$config_file"
+    fi
+}
+
+# Add or replace the necessary settings
+add_or_replace_setting "PubkeyAuthentication" "yes" "$SSH_CONFIG"
+add_or_replace_setting "PasswordAuthentication" "no" "$SSH_CONFIG"
+add_or_replace_setting "ChallengeResponseAuthentication" "no" "$SSH_CONFIG"
+add_or_replace_setting "PermitRootLogin" "no" "$SSH_CONFIG"
+add_or_replace_setting "ClientAliveInterval" "300" "$SSH_CONFIG"
+add_or_replace_setting "ClientAliveCountMax" "12" "$SSH_CONFIG"
+
+# Restart the SSH service to apply the changes
+systemctl restart ssh
+
+log "SSH configuration updated and service restarted."
+
+echo "IP: \4" | tee -a /etc/issue
+log "/etc/issue file modified."
+
+mkdir /home/debian/bash-scripts && cd /home/debian/bash-scripts && git clone https://github.com/kamil-lada/bash-scripts.git . > /dev/null 2>&1 && log "Scripts repo cloned." || error "Failed to clone scripts repo."
+chown -R debian:debian /home/debian/bash-scripts
+chmod +x /home/debian/bash-scripts/*.sh
+
 # Set root user with no password
 log "Removing password for root user..."
 passwd -d root > /dev/null 2>&1 || error "Failed to remove password for root user."
@@ -144,43 +180,7 @@ echo > ~/.bash_history || error "Failed to clear .bash_history."
 log "Verifying Java installation..."
 java -version || error "Java is not installed properly."
 
-# Path to the SSH configuration file
-SSH_CONFIG="/etc/ssh/sshd_config"
-
-# Backup the current SSH configuration file
-cp "$SSH_CONFIG" "${SSH_CONFIG}.bak"
-
-# Function to add or replace a configuration setting
-add_or_replace_setting() {
-    local setting="$1"
-    local value="$2"
-    local config_file="$3"
-    
-    if grep -q "^${setting}" "$config_file"; then
-        sed -i "s|^${setting}.*|${setting} ${value}|" "$config_file"
-    else
-        echo "${setting} ${value}" >> "$config_file"
-    fi
-}
-
-# Add or replace the necessary settings
-add_or_replace_setting "PubkeyAuthentication" "yes" "$SSH_CONFIG"
-add_or_replace_setting "PasswordAuthentication" "no" "$SSH_CONFIG"
-add_or_replace_setting "ChallengeResponseAuthentication" "no" "$SSH_CONFIG"
-add_or_replace_setting "PermitRootLogin" "no" "$SSH_CONFIG"
-add_or_replace_setting "ClientAliveInterval" "300" "$SSH_CONFIG"
-add_or_replace_setting "ClientAliveCountMax" "12" "$SSH_CONFIG"
-
-# Restart the SSH service to apply the changes
-systemctl restart ssh
-
-log "SSH configuration updated and service restarted."
-
-echo "IP: \4" | tee -a /etc/issue
-log "/etc/issue file modified."
-
-mkdir bash-scripts && cd bash-scripts && git clone https://github.com/kamil-lada/bash-scripts.git . > /dev/null 2>&1 && log "Scripts repo cloned." || error "Failed to clone scripts repo."
-
 rm -- "$0"
+
 
 log "VM preparation completed successfully."

@@ -8,7 +8,7 @@ DATA_DIR="/data/mariadb"
 MASTER_LOG_FILE="mysql-bin.000001" # Update with the actual log file from master
 MASTER_LOG_POS=1234                 # Update with the actual log position from master
 
-sudo apt update && sudo apt install -y mariadb-server php-mbstring php-zip php-gd phpmyadmin
+sudo apt update && sudo apt install -y mariadb-server
 
 # Stop MariaDB service
 sudo systemctl stop mariadb

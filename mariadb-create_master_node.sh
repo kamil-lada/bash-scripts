@@ -6,7 +6,7 @@ REPLICATION_USER="replication_user"
 REPLICATION_PASSWORD="replication_password"
 DATA_DIR="/data/mariadb"
 
-sudo apt update && sudo apt install -y mariadb-server php-mbstring php-zip php-gd phpmyadmin
+sudo apt update && sudo apt install -y mariadb-server
 
 # Stop MariaDB service
 sudo systemctl stop mariadb

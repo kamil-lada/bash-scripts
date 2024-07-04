@@ -6,15 +6,7 @@ REPLICATION_USER="replication_user"
 REPLICATION_PASSWORD="replication_password"
 DATA_DIR="/data/mariadb"
 
-# Install MariaDB 10.5
-sudo apt update
-sudo apt install -y software-properties-common
-sudo add-apt-repository 'deb [arch=amd64] http://ftp.ubuntu.com/ubuntu focal universe'
-sudo apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc'
-sudo add-apt-repository 'deb [arch=amd64] http://mirror.23media.de/mariadb/repo/10.5/ubuntu focal main'
-
-sudo apt update
-sudo apt install -y mariadb-server php-mbstring php-zip php-gd phpmyadmin
+sudo apt update && sudo apt install -y mariadb-server php-mbstring php-zip php-gd phpmyadmin
 
 # Stop MariaDB service
 sudo systemctl stop mariadb

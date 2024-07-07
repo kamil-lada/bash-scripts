@@ -28,6 +28,7 @@ fi
 DATA_DIR="/data/mariadb"
 BUFFER_POOL_SIZE="4G"
 LOG_FILE_SIZE="512M"
+BIND_ADDRESS="0.0.0.0" 
 
 sudo apt update && sudo apt install -y mariadb-server expect
 
@@ -42,6 +43,10 @@ sudo chown -R mysql:mysql $DATA_DIR
 # Update MariaDB configuration
 sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
 
+# Set bind-address in MariaDB configuration
+sudo sed -i "s|^bind-address.*|bind-address = $BIND_ADDRESS|g" /etc/mysql/mariadb.conf.d/50-server.cnf
+
+# 
 # Add performance and durability settings to MariaDB configuration
 cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
 [mysqld]
@@ -107,6 +112,15 @@ GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 FLUSH PRIVILEGES;
 FLUSH TABLES WITH READ LOCK;
 SHOW MASTER STATUS;
+EOF
+
+NEW_USER="admin"
+
+# Connect to MariaDB as root and create user
+mysql -u root -p$ROOT_PASSWORD <<EOF
+CREATE USER '$NEW_USER'@'%' IDENTIFIED BY '$ROOT_PASSWORD';
+GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
 EOF
 
 echo "MariaDB master setup complete. Note the 'File' and 'Position' from the SHOW MASTER STATUS output above."

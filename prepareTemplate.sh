@@ -11,9 +11,37 @@ error() {
     exit 1
 }
 
+# Function to add SSH public key to authorized_keys file
+add_ssh_key() {
+    local ssh_key="$1"
+
+    # Check if the key is not empty
+    if [ -n "$ssh_key" ]; then
+        echo "Adding SSH public key to authorized_keys:"
+        echo "$ssh_key" >> /home/debian/.ssh/authorized_keys
+    else
+        echo "Empty input received. Stopping."
+        exit 0
+    fi
+}
+
+log "Enter SSH public key(s) to add to authorized_keys (leave empty to finish):"
+
+mkdir -p /home/debian/.ssh || error "Failed to create /root/.ssh directory."
+# Loop to prompt user for SSH public keys
+while true; do
+    read -p "SSH Public Key: " ssh_key_input
+
+    # Call function to add SSH key to authorized_keys
+    add_ssh_key "$ssh_key_input"
+done
+
+chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
+chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
+
 # Install common packages
 log "Installing common packages..."
-apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted > /dev/null 2>&1 || error "Failed to install common packages."
+apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump > /dev/null 2>&1 || error "Failed to install common packages."
 
 log "Installing Zabbix Agent 2"
 wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."

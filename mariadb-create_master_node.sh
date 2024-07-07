@@ -26,6 +26,8 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 DATA_DIR="/data/mariadb"
+BUFFER_POOL_SIZE="4G"
+LOG_FILE_SIZE="512M"
 
 sudo apt update && sudo apt install -y mariadb-server
 
@@ -41,7 +43,7 @@ sudo chown -R mysql:mysql $DATA_DIR
 sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
 
 # Add performance and durability settings to MariaDB configuration
-cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
+cat <<SCNF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
 [mysqld]
 # Performance Improvements
 innodb_buffer_pool_size = $BUFFER_POOL_SIZE
@@ -66,7 +68,7 @@ gtid_domain_id = 1
 max_connections = 500
 thread_cache_size = 50
 table_open_cache = 2000
-EOF
+SCNF
 
 
 # Update AppArmor profile for MariaDB

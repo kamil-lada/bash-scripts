@@ -54,6 +54,8 @@ if [ -z "$ROOT_PASSWORD" ]; then
 fi
 
 DATA_DIR="/data/mariadb"
+BUFFER_POOL_SIZE="4G"
+LOG_FILE_SIZE="512M"
 sudo apt update && sudo apt install -y mariadb-server
 
 # Stop MariaDB service
@@ -119,6 +121,6 @@ START SLAVE;
 EOF
 
 # Verify replication status
-mysql -u root -p -e "SHOW SLAVE STATUS \G"
+mysql -u root -e "SHOW SLAVE STATUS \G"
 
 echo "MariaDB slave setup complete."

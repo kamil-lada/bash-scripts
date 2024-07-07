@@ -85,8 +85,15 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 2
-relay_log = /var/log/mysql/relay-bin
+relay_log = $DATA_DIR/relay-bin
 read_only = 1
+
+# Log Settings
+log_error = $DATA_DIR/error.log
+slow_query_log = 1
+slow_query_log_file = $DATA_DIR/slow.log
+general_log = 1
+general_log_file = $DATA_DIR/general.log
 
 # Other recommended settings
 max_connections = 500
@@ -108,7 +115,7 @@ sudo systemctl start mariadb
 # Secure MariaDB installation
 sudo mysql_secure_installation 2>/dev/null <<MSI
 
-n
+y
 y
 ${ROOT_PASSWORD}
 ${ROOT_PASSWORD}
@@ -119,7 +126,7 @@ y
 MSI
 
 # Set up replication
-mysql -u root -p <<EOF
+mysql -u root -p$ROOT_PASSWORD <<EOF
 STOP SLAVE;
 CHANGE MASTER TO
   MASTER_HOST='$MASTER_HOST',
@@ -131,6 +138,6 @@ START SLAVE;
 EOF
 
 # Verify replication status
-mysql -u root -e "SHOW SLAVE STATUS \G"
+mmysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
 
 echo "MariaDB slave setup complete."

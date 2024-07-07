@@ -59,10 +59,17 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 1
-log_bin = ${DATA_DIR}/mariadb-bin
+log_bin = $DATA_DIR/mariadb-bin
 binlog_format = ROW
 gtid_strict_mode = 1
 gtid_domain_id = 1
+
+# Log Settings
+log_error = $DATA_DIR/error.log
+slow_query_log = 1
+slow_query_log_file = $DATA_DIR/slow.log
+general_log = 1
+general_log_file = $DATA_DIR/general.log
 
 # Other recommended settings
 max_connections = 500
@@ -85,7 +92,7 @@ sudo systemctl start mariadb
 # Secure MariaDB installation
 sudo mysql_secure_installation 2>/dev/null <<MSI
 
-n
+y
 y
 ${ROOT_PASSWORD}
 ${ROOT_PASSWORD}

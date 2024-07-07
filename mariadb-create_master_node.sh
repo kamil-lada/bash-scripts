@@ -52,7 +52,7 @@ fi
 sudo systemctl start mariadb
 
 # Secure MariaDB installation
-sudo mysql_secure_installation 2>/dev/null <<EOF
+sudo mysql_secure_installation 2>/dev/null <<MSI
 
 n
 y
@@ -62,10 +62,10 @@ y
 n
 y
 y
-EOF
+MSI
 
 # Configure MariaDB for replication
-mysql -u root -p <<EOF
+mysql -u root -p "$ROOT_PASSWORD" <<EOF
 CREATE USER '$REPLICATION_USER'@'%' IDENTIFIED BY '$REPLICATION_PASSWORD';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 FLUSH PRIVILEGES;

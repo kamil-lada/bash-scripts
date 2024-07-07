@@ -40,6 +40,35 @@ sudo chown -R mysql:mysql $DATA_DIR
 # Update MariaDB configuration
 sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
 
+# Add performance and durability settings to MariaDB configuration
+cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
+[mysqld]
+# Performance Improvements
+innodb_buffer_pool_size = $BUFFER_POOL_SIZE
+innodb_log_file_size = $LOG_FILE_SIZE
+innodb_flush_method = O_DIRECT
+query_cache_size = 0
+query_cache_type = 0
+
+# Preventing Data Corruption
+innodb_flush_log_at_trx_commit = 1
+innodb_doublewrite = 1
+sync_binlog = 1
+
+# Replication Settings
+server_id = 1
+log_bin = /var/log/mysql/mariadb-bin
+binlog_format = ROW
+gtid_strict_mode = 1
+gtid_domain_id = 1
+
+# Other recommended settings
+max_connections = 500
+thread_cache_size = 50
+table_open_cache = 2000
+EOF
+
+
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
     echo -e "\n# Custom data directory configuration" | sudo tee -a /etc/apparmor.d/usr.sbin.mysqld
@@ -66,7 +95,7 @@ MSI
 
 # Configure MariaDB for replication
 mysql -u root <<EOF
-CREATE USER ${REPLICATION_USER}@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
+CREATE USER "${REPLICATION_USER}"@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 FLUSH PRIVILEGES;
 FLUSH TABLES WITH READ LOCK;

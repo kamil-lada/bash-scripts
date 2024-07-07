@@ -1,13 +1,59 @@
 #!/bin/bash
+# Variables
+read -p "Please enter MASTER_HOST: " MASTER_HOST
+
+# Check if the input is not empty
+if [ -z "$MASTER_HOST" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
 
 # Variables
-MASTER_HOST="master_ip_or_hostname"
-REPLICATION_USER="replication_user"
-REPLICATION_PASSWORD="replication_password"
-DATA_DIR="/data/mariadb"
-MASTER_LOG_FILE="mysql-bin.000001" # Update with the actual log file from master
-MASTER_LOG_POS=1234                 # Update with the actual log position from master
+read -p "Please enter REPLICATION_USER: " REPLICATION_USER
 
+# Check if the input is not empty
+if [ -z "$REPLICATION_USER" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter REPLICATION_PASSWORD: " REPLICATION_PASSWORD
+
+# Check if the input is not empty
+if [ -z "$REPLICATION_PASSWORD" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter MASTER_LOG_FILE: " MASTER_LOG_FILE
+
+# Check if the input is not empty
+if [ -z "$MASTER_LOG_FILE" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter MASTER_LOG_POS: " MASTER_LOG_POS
+
+# Check if the input is not empty
+if [ -z "$MASTER_LOG_POS" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
+
+# Check if the input is not empty
+if [ -z "$ROOT_PASSWORD" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+DATA_DIR="/data/mariadb"
 sudo apt update && sudo apt install -y mariadb-server
 
 # Stop MariaDB service
@@ -20,6 +66,31 @@ sudo chown -R mysql:mysql $DATA_DIR
 
 # Update MariaDB configuration
 sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
+
+cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
+[mysqld]
+# Performance Improvements
+innodb_buffer_pool_size = $BUFFER_POOL_SIZE
+innodb_log_file_size = $LOG_FILE_SIZE
+innodb_flush_method = O_DIRECT
+query_cache_size = 0
+query_cache_type = 0
+
+# Preventing Data Corruption
+innodb_flush_log_at_trx_commit = 1
+innodb_doublewrite = 1
+sync_binlog = 1
+
+# Replication Settings
+server_id = 2
+relay_log = /var/log/mysql/relay-bin
+read_only = 1
+
+# Other recommended settings
+max_connections = 500
+thread_cache_size = 50
+table_open_cache = 2000
+EOF
 
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then

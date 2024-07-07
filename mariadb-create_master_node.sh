@@ -29,7 +29,7 @@ DATA_DIR="/data/mariadb"
 BUFFER_POOL_SIZE="4G"
 LOG_FILE_SIZE="512M"
 
-sudo apt update && sudo apt install -y mariadb-server
+sudo apt update && sudo apt install -y mariadb-server expect
 
 # Stop MariaDB service
 sudo systemctl stop mariadb
@@ -100,7 +100,7 @@ fi
 sudo systemctl start mariadb
 
 # Secure MariaDB installation using expect script
-./mysql_secure_install.sh $ROOT_PASSWORD
+/home/debian/bash-scripts/mysql_secure_install.sh $ROOT_PASSWORD
 
 # Configure MariaDB for replication
 mysql -u root -p$ROOT_PASSWORD <<EOF

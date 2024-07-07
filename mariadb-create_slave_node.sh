@@ -101,8 +101,6 @@ thread_cache_size = 50
 table_open_cache = 2000
 
 # Paths for other files
-pid-file = $DATA_DIR/mariadb.pid
-socket = $DATA_DIR/mariadb.sock
 tmpdir = $DATA_DIR/tmp
 
 # InnoDB Paths

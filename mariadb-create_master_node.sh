@@ -59,7 +59,7 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 1
-log_bin = /var/log/mysql/mariadb-bin
+log_bin = ${DATA_DIR}/mariadb-bin
 binlog_format = ROW
 gtid_strict_mode = 1
 gtid_domain_id = 1
@@ -96,8 +96,8 @@ y
 MSI
 
 # Configure MariaDB for replication
-mysql -u root <<EOF
-CREATE USER "${REPLICATION_USER}"@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
+mysql -u root -p$ROOT_PASSWORD <<EOF
+CREATE USER ${REPLICATION_USER}@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 FLUSH PRIVILEGES;
 FLUSH TABLES WITH READ LOCK;

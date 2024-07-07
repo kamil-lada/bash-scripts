@@ -4,7 +4,7 @@
 read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
 
 # Check if the input is not empty
-if [ -z "$new_pwd2" ]; then
+if [ -z "$ROOT_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
@@ -12,7 +12,7 @@ fi
 read -p "Please enter REPLICATION_USER: " REPLICATION_USER
 
 # Check if the input is not empty
-if [ -z "$new_pwd2" ]; then
+if [ -z "$REPLICATION_USER" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
@@ -20,7 +20,7 @@ fi
 read -p "Please enter REPLICATION_PASSWORD: " REPLICATION_PASSWORD
 
 # Check if the input is not empty
-if [ -z "$new_pwd2" ]; then
+if [ -z "$REPLICATION_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi

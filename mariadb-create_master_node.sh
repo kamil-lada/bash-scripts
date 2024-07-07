@@ -86,6 +86,8 @@ innodb_data_home_dir = $DATA_DIR
 innodb_log_group_home_dir = $DATA_DIR
 EOF
 
+mkdir "$DATA_DIR"/tmp
+
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
     echo -e "\n# Custom data directory configuration" | sudo tee -a /etc/apparmor.d/usr.sbin.mysqld

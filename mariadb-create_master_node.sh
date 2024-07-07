@@ -43,7 +43,7 @@ sudo chown -R mysql:mysql $DATA_DIR
 sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
 
 # Add performance and durability settings to MariaDB configuration
-cat <<SCNF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
+cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
 [mysqld]
 # Performance Improvements
 innodb_buffer_pool_size = $BUFFER_POOL_SIZE
@@ -75,8 +75,16 @@ general_log_file = $DATA_DIR/general.log
 max_connections = 500
 thread_cache_size = 50
 table_open_cache = 2000
-SCNF
 
+# Paths for other files
+pid-file = $DATA_DIR/mariadb.pid
+socket = $DATA_DIR/mariadb.sock
+tmpdir = $DATA_DIR/tmp
+
+# InnoDB Paths
+innodb_data_home_dir = $DATA_DIR
+innodb_log_group_home_dir = $DATA_DIR
+EOF
 
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then

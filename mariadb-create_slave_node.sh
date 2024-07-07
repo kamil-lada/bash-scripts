@@ -58,7 +58,6 @@ BUFFER_POOL_SIZE="4G"
 LOG_FILE_SIZE="512M"
 sudo apt update && sudo apt install -y mariadb-server
 
-# Stop MariaDB service
 sudo systemctl stop mariadb
 
 # Create new data directory and move existing data
@@ -69,6 +68,7 @@ sudo chown -R mysql:mysql $DATA_DIR
 # Update MariaDB configuration
 sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
 
+# Add performance and durability settings to MariaDB configuration
 cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
 [mysqld]
 # Performance Improvements
@@ -99,6 +99,15 @@ general_log_file = $DATA_DIR/general.log
 max_connections = 500
 thread_cache_size = 50
 table_open_cache = 2000
+
+# Paths for other files
+pid-file = $DATA_DIR/mariadb.pid
+socket = $DATA_DIR/mariadb.sock
+tmpdir = $DATA_DIR/tmp
+
+# InnoDB Paths
+innodb_data_home_dir = $DATA_DIR
+innodb_log_group_home_dir = $DATA_DIR
 EOF
 
 # Update AppArmor profile for MariaDB
@@ -138,6 +147,6 @@ START SLAVE;
 EOF
 
 # Verify replication status
-mmysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
+mysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
 
 echo "MariaDB slave setup complete."

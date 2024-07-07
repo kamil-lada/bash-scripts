@@ -110,6 +110,8 @@ innodb_data_home_dir = $DATA_DIR
 innodb_log_group_home_dir = $DATA_DIR
 EOF
 
+mkdir "$DATA_DIR"/tmp
+
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
     echo -e "\n# Custom data directory configuration" | sudo tee -a /etc/apparmor.d/usr.sbin.mysqld
@@ -121,18 +123,8 @@ fi
 # Start MariaDB service
 sudo systemctl start mariadb
 
-# Secure MariaDB installation
-sudo mysql_secure_installation 2>/dev/null <<MSI
-
-y
-y
-${ROOT_PASSWORD}
-${ROOT_PASSWORD}
-y
-n
-y
-y
-MSI
+# Secure MariaDB installation using expect script
+./secure_mysql.sh $ROOT_PASSWORD
 
 # Set up replication
 mysql -u root -p$ROOT_PASSWORD <<EOF

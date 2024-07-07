@@ -97,18 +97,8 @@ fi
 # Start MariaDB service
 sudo systemctl start mariadb
 
-# Secure MariaDB installation
-sudo mysql_secure_installation 2>/dev/null <<MSI
-
-y
-y
-${ROOT_PASSWORD}
-${ROOT_PASSWORD}
-y
-n
-y
-y
-MSI
+# Secure MariaDB installation using expect script
+./secure_mysql.sh $ROOT_PASSWORD
 
 # Configure MariaDB for replication
 mysql -u root -p$ROOT_PASSWORD <<EOF

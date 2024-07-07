@@ -1,9 +1,30 @@
 #!/bin/bash
 
 # Variables
-ROOT_PASSWORD="your_root_password"
-REPLICATION_USER="replication_user"
-REPLICATION_PASSWORD="replication_password"
+read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
+
+# Check if the input is not empty
+if [ -z "$new_pwd2" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+read -p "Please enter REPLICATION_USER: " REPLICATION_USER
+
+# Check if the input is not empty
+if [ -z "$new_pwd2" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+read -p "Please enter REPLICATION_PASSWORD: " REPLICATION_PASSWORD
+
+# Check if the input is not empty
+if [ -z "$new_pwd2" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
 DATA_DIR="/data/mariadb"
 
 sudo apt update && sudo apt install -y mariadb-server
@@ -31,10 +52,20 @@ fi
 sudo systemctl start mariadb
 
 # Secure MariaDB installation
-sudo mysql_secure_installation
+sudo mysql_secure_installation 2>/dev/null <<EOF
+
+n
+y
+${ROOT_PASSWORD}
+${ROOT_PASSWORD}
+y
+n
+y
+y
+EOF
 
 # Configure MariaDB for replication
-mysql -u root -p$ROOT_PASSWORD <<EOF
+mysql -u root -p <<EOF
 CREATE USER '$REPLICATION_USER'@'%' IDENTIFIED BY '$REPLICATION_PASSWORD';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 FLUSH PRIVILEGES;

@@ -110,7 +110,7 @@ innodb_data_home_dir = $DATA_DIR
 innodb_log_group_home_dir = $DATA_DIR
 EOF
 
-mkdir "$DATA_DIR"/tmp
+mkdir "$DATA_DIR"/tmp && chown -R mysql:mysql "$DATA_DIR"
 
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then

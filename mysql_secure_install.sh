@@ -1,6 +1,6 @@
 #!/usr/bin/expect -f
 
-set timeout 10
+set timeout 2
 set password [lindex $argv 0]
 
 spawn mysql_secure_installation
@@ -11,7 +11,7 @@ send "$password\r"
 expect "Switch to unix_socket authentication \[Y/n\]"
 send "y\r"
 
-eexpect "Change the root password? \[Y/n\]"
+expect "Change the root password? \[Y/n\]"
 send "n\r"
 
 expect "Remove anonymous users? \[Y/n\]"

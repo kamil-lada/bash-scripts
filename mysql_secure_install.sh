@@ -8,14 +8,11 @@ spawn mysql_secure_installation
 expect "Enter current password for root (enter for none):"
 send "$password\r"
 
-expect "Set root password? \[Y/n\]"
+expect "Switch to unix_socket authentication \[Y/n\]"
 send "y\r"
 
-expect "New password:"
-send "$password\r"
-
-expect "Re-enter new password:"
-send "$password\r"
+eexpect "Change the root password? \[Y/n\]"
+send "n\r"
 
 expect "Remove anonymous users? \[Y/n\]"
 send "y\r"

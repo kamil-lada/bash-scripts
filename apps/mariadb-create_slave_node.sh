@@ -35,6 +35,7 @@ if [ -z "$ROOT_PASSWORD" ]; then
   exit 1
 fi
 
+DATA_DIR="/data/mariadb"
 
 sudo apt update && sudo apt install -y mariadb-server expect
 

@@ -117,7 +117,7 @@ sudo systemctl start mariadb
 /home/debian/bash-scripts/apps/mariadb-mysql_secure_install.sh $ROOT_PASSWORD
 
 # Configure MariaDB for replication
-mysql -u root -p  <<EOF
+mysql -u root -p$ROOT_PASSWORD  <<EOF
 CREATE USER ${REPLICATION_USER}@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';

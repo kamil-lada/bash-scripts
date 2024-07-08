@@ -139,6 +139,14 @@ ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 EOF
 
+NEW_USER="admin"
+
+# Connect to MariaDB as root and create user
+mysql -u root -p$ROOT_PASSWORD <<EOF
+CREATE USER 'admin'@'%' IDENTIFIED BY '$ROOT_PASSWORD';
+GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
 
 # Verify replication status
 mysql -u root -p -e "SHOW SLAVE STATUS \G"

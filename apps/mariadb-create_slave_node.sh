@@ -1,14 +1,14 @@
 #!/bin/bash
-
 # Variables
-read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
+read -p "Please enter MASTER_HOST: " MASTER_HOST
 
 # Check if the input is not empty
-if [ -z "$ROOT_PASSWORD" ]; then
+if [ -z "$MASTER_HOST" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
 
+# Variables
 read -p "Please enter REPLICATION_USER: " REPLICATION_USER
 
 # Check if the input is not empty
@@ -17,10 +17,38 @@ if [ -z "$REPLICATION_USER" ]; then
   exit 1
 fi
 
+# Variables
 read -p "Please enter REPLICATION_PASSWORD: " REPLICATION_PASSWORD
 
 # Check if the input is not empty
 if [ -z "$REPLICATION_PASSWORD" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter MASTER_LOG_FILE: " MASTER_LOG_FILE
+
+# Check if the input is not empty
+if [ -z "$MASTER_LOG_FILE" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter MASTER_LOG_POS: " MASTER_LOG_POS
+
+# Check if the input is not empty
+if [ -z "$MASTER_LOG_POS" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
+
+# Check if the input is not empty
+if [ -z "$ROOT_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
@@ -32,7 +60,6 @@ BIND_ADDRESS="0.0.0.0"
 
 sudo apt update && sudo apt install -y mariadb-server expect
 
-# Stop MariaDB service
 sudo systemctl stop mariadb
 
 # Create new data directory and move existing data
@@ -63,11 +90,9 @@ innodb_doublewrite = 1
 sync_binlog = 1
 
 # Replication Settings
-server_id = 1
-log_bin = $DATA_DIR/mariadb-bin
-binlog_format = ROW
-gtid_strict_mode = 1
-gtid_domain_id = 1
+server_id = 2
+relay_log = $DATA_DIR/relay-bin
+read_only = 1
 
 # Log Settings
 log_error = $DATA_DIR/error.log
@@ -103,15 +128,18 @@ fi
 sudo systemctl start mariadb
 
 # Secure MariaDB installation using expect script
-/home/debian/bash-scripts/mysql_secure_install.sh $ROOT_PASSWORD
+/home/debian/bash-scripts/apps/mariadb-mysql_secure_install.sh $ROOT_PASSWORD
 
-# Configure MariaDB for replication
+# Set up replication
 mysql -u root -p$ROOT_PASSWORD <<EOF
-CREATE USER ${REPLICATION_USER}@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
-FLUSH PRIVILEGES;
-FLUSH TABLES WITH READ LOCK;
-SHOW MASTER STATUS;
+STOP SLAVE;
+CHANGE MASTER TO
+  MASTER_HOST='$MASTER_HOST',
+  MASTER_USER='$REPLICATION_USER',
+  MASTER_PASSWORD='$REPLICATION_PASSWORD',
+  MASTER_LOG_FILE='$MASTER_LOG_FILE',
+  MASTER_LOG_POS=$MASTER_LOG_POS;
+START SLAVE;
 EOF
 
 NEW_USER="admin"
@@ -123,4 +151,9 @@ GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOF
 
-echo "MariaDB master setup complete. Note the 'File' and 'Position' from the SHOW MASTER STATUS output above."
+
+
+# Verify replication status
+mysql -u root -p -e "SHOW SLAVE STATUS \G"
+
+echo "MariaDB slave setup complete."

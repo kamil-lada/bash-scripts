@@ -25,6 +25,8 @@ add_ssh_key() {
     fi
 }
 
+###################################################################################################   START
+
 log "Enter SSH public key(s) to add to authorized_keys (leave empty to finish):"
 
 mkdir -p /home/debian/.ssh || error "Failed to create /root/.ssh directory."
@@ -41,11 +43,8 @@ chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions 
 
 # Install common packages
 log "Installing common packages..."
-apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump > /dev/null 2>&1 || error "Failed to install common packages."
-
-log "Installing Zabbix Agent 2"
 wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install Zabbix Agent 2."
+apt update > /dev/null 2>&1 && apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump > /dev/null 2>&1 || error "Failed to install common packages."
 rm zabbix-release_7.0-1+debian12* > /dev/null 2>&1
 cat <<EOL | sudo tee /etc/zabbix/zabbix-agent2.conf
 BufferSend=5
@@ -66,7 +65,8 @@ Server=example.com
 ServerActive=example.com
 EOL
 
-systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2 && log "Zabbix installed successfully" || error "Failed to install Zabbix"
+systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2
+
 # Set up aliases in /etc/bash.bashrc
 log "Setting up aliases in /etc/bash.bashrc..."
 
@@ -88,16 +88,6 @@ timedatectl set-timezone Europe/Warsaw || error "Failed to set timezone."
 log "Disabling predictable network interface names..."
 ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules || error "Failed to disable predictable network interface names."
 update-initramfs -u || error "Failed to update initramfs."
-
-# Add public SSH key to root's authorized_keys
-log "Adding public SSH key to root's authorized_keys..."
-mkdir -p /root/.ssh || error "Failed to create /root/.ssh directory."
-mkdir -p /home/debian/.ssh || error "Failed to create /root/.ssh directory."
-echo "$public_ssh_key" > /root/.ssh/authorized_keys || error "Failed to write SSH key to /root/.ssh/authorized_keys."
-echo "$public_ssh_key" > /home/debian/.ssh/authorized_keys || error "Failed to write SSH key to /home/debian/.ssh/authorized_keys."
-chmod 600 /root/.ssh/authorized_keys || error "Failed to set permissions on /root/.ssh/authorized_keys."
-chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
-chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
 # Install qemu-guest-agent for Proxmox
 log "Installing qemu-guest-agent..."

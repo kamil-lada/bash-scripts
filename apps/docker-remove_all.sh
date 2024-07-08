@@ -8,7 +8,7 @@ sudo docker rm $(sudo docker ps -a -q)
 sudo docker rmi $(sudo docker images -a -q)
 
 # Uninstall Docker Engine
-sudo apt-get purge docker-ce docker-ce-cli containerd.io
+sudo apt-get purge docker-ce docker-ce-cli containerd.io docker.io docker-doc docker-compose podman-docker containerd runc
 
 # Remove Docker configuration files
 sudo rm -rf /etc/docker

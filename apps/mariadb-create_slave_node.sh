@@ -27,24 +27,6 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 # Variables
-read -p "Please enter MASTER_LOG_FILE: " MASTER_LOG_FILE
-
-# Check if the input is not empty
-if [ -z "$MASTER_LOG_FILE" ]; then
-  error "Value cannot be empty. Exiting."
-  exit 1
-fi
-
-# Variables
-read -p "Please enter MASTER_LOG_POS: " MASTER_LOG_POS
-
-# Check if the input is not empty
-if [ -z "$MASTER_LOG_POS" ]; then
-  error "Value cannot be empty. Exiting."
-  exit 1
-fi
-
-# Variables
 read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
 
 # Check if the input is not empty
@@ -53,10 +35,6 @@ if [ -z "$ROOT_PASSWORD" ]; then
   exit 1
 fi
 
-DATA_DIR="/data/mariadb"
-BUFFER_POOL_SIZE="4G"
-LOG_FILE_SIZE="512M"
-BIND_ADDRESS="0.0.0.0" 
 
 sudo apt update && sudo apt install -y mariadb-server expect
 
@@ -154,8 +132,7 @@ CHANGE MASTER TO
   MASTER_HOST='$MASTER_HOST',
   MASTER_USER='$REPLICATION_USER',
   MASTER_PASSWORD='$REPLICATION_PASSWORD',
-  MASTER_LOG_FILE='$MASTER_LOG_FILE',
-  MASTER_LOG_POS=$MASTER_LOG_POS;
+  MASTER_USE_GTID=slave_pos;
 START SLAVE;
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';
 FLUSH PRIVILEGES;

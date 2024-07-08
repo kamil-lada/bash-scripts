@@ -93,8 +93,6 @@ thread_cache_size = 50
 table_open_cache = 2000
 
 # Paths for other files
-pid-file = ${DATA_DIR}/mariadb.pid
-socket = ${DATA_DIR}/mariadb.sock
 tmpdir = ${DATA_DIR}/tmp
 
 # InnoDB Paths
@@ -119,7 +117,7 @@ sudo systemctl start mariadb
 /home/debian/bash-scripts/apps/mariadb-mysql_secure_install.sh $ROOT_PASSWORD
 
 # Configure MariaDB for replication
-mysql -u root -p$ROOT_PASSWORD <<EOF
+mysql -u root -p  <<EOF
 CREATE USER ${REPLICATION_USER}@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';

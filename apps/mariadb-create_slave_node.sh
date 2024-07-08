@@ -67,19 +67,28 @@ sudo mkdir -p $DATA_DIR
 sudo rsync -av /var/lib/mysql/ $DATA_DIR/
 sudo chown -R mysql:mysql $DATA_DIR
 
-# Update MariaDB configuration
-sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
+CONFIG_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf"
+BACKUP_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf.bak.$(date +%F-%H-%M-%S)"
+DATA_DIR="/data/mariadb"
 
-# Set bind-address in MariaDB configuration
-sudo sed -i "s|^bind-address.*|bind-address = $BIND_ADDRESS|g" /etc/mysql/mariadb.conf.d/50-server.cnf
-
+# Backup the current configuration file
+sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
 # 
 # Add performance and durability settings to MariaDB configuration
-cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
+cat <<EOF | sudo tee "$CONFIG_FILE"
 [mysqld]
+# Native options
+pid-file = /run/mysqld/mysqld.pid
+basedir = /usr
+bind-address = 0.0.0.0
+expire_logs_days = 10
+character-set-server = utf8mb4
+collation-server = utf8mb4_general_ci
+datadir = $DATA_DIR
+
 # Performance Improvements
-innodb_buffer_pool_size = $BUFFER_POOL_SIZE
-innodb_log_file_size = $LOG_FILE_SIZE
+innodb_buffer_pool_size = 4G
+innodb_log_file_size = 512M
 innodb_flush_method = O_DIRECT
 query_cache_size = 0
 query_cache_type = 0
@@ -91,8 +100,12 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 2
-relay_log = $DATA_DIR/relay-bin
-read_only = 1
+log_bin = $DATA_DIR/mariadb-bin
+binlog_format = ROW
+binlog_checksum = CRC32
+gtid_strict_mode = ON
+gtid_domain_id = 1
+log_slave_updates = ON
 
 # Log Settings
 log_error = $DATA_DIR/error.log
@@ -112,6 +125,10 @@ tmpdir = $DATA_DIR/tmp
 # InnoDB Paths
 innodb_data_home_dir = $DATA_DIR
 innodb_log_group_home_dir = $DATA_DIR
+
+# Slave-specific settings
+relay_log = $DATA_DIR/relay-bin
+read_only = 1
 EOF
 
 mkdir "$DATA_DIR"/tmp && chown -R mysql:mysql "$DATA_DIR"
@@ -140,17 +157,9 @@ CHANGE MASTER TO
   MASTER_LOG_FILE='$MASTER_LOG_FILE',
   MASTER_LOG_POS=$MASTER_LOG_POS;
 START SLAVE;
-EOF
-
-NEW_USER="admin"
-
-# Connect to MariaDB as root and create user
-mysql -u root -p$ROOT_PASSWORD <<EOF
-CREATE USER '$NEW_USER'@'%' IDENTIFIED BY '$ROOT_PASSWORD';
-GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 EOF
-
 
 
 # Verify replication status

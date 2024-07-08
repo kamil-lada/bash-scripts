@@ -40,19 +40,28 @@ sudo mkdir -p $DATA_DIR
 sudo rsync -av /var/lib/mysql/ $DATA_DIR/
 sudo chown -R mysql:mysql $DATA_DIR
 
-# Update MariaDB configuration
-sudo sed -i "s|^datadir.*|datadir = $DATA_DIR|g" /etc/mysql/mariadb.conf.d/50-server.cnf
+CONFIG_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf"
+BACKUP_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf.bak.$(date +%F-%H-%M-%S)"
+DATA_DIR="/data/mariadb"
 
-# Set bind-address in MariaDB configuration
-sudo sed -i "s|^bind-address.*|bind-address = $BIND_ADDRESS|g" /etc/mysql/mariadb.conf.d/50-server.cnf
-
+# Backup the current configuration file
+sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
 # 
 # Add performance and durability settings to MariaDB configuration
-cat <<EOF | sudo tee -a /etc/mysql/mariadb.conf.d/50-server.cnf
+cat <<EOF | sudo tee "$CONFIG_FILE"
 [mysqld]
+# Native options
+pid-file = /run/mysqld/mysqld.pid
+basedir = /usr
+bind-address = 0.0.0.0
+expire_logs_days = 10
+character-set-server = utf8mb4
+collation-server = utf8mb4_general_ci
+datadir = $DATA_DIR
+
 # Performance Improvements
-innodb_buffer_pool_size = $BUFFER_POOL_SIZE
-innodb_log_file_size = $LOG_FILE_SIZE
+innodb_buffer_pool_size = 4G
+innodb_log_file_size = 512M
 innodb_flush_method = O_DIRECT
 query_cache_size = 0
 query_cache_type = 0
@@ -64,17 +73,19 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 1
-log_bin = $DATA_DIR/mariadb-bin
+log_bin = ${DATA_DIR}/mariadb-bin
 binlog_format = ROW
-gtid_strict_mode = 1
+binlog_checksum = CRC32
+gtid_strict_mode = ON
 gtid_domain_id = 1
+log_slave_updates = ON
 
 # Log Settings
-log_error = $DATA_DIR/error.log
+log_error = ${DATA_DIR}/error.log
 slow_query_log = 1
-slow_query_log_file = $DATA_DIR/slow.log
+slow_query_log_file = ${DATA_DIR}/slow.log
 general_log = 1
-general_log_file = $DATA_DIR/general.log
+general_log_file = ${DATA_DIR}/general.log
 
 # Other recommended settings
 max_connections = 500
@@ -82,11 +93,13 @@ thread_cache_size = 50
 table_open_cache = 2000
 
 # Paths for other files
-tmpdir = $DATA_DIR/tmp
+pid-file = ${DATA_DIR}/mariadb.pid
+socket = ${DATA_DIR}/mariadb.sock
+tmpdir = ${DATA_DIR}/tmp
 
 # InnoDB Paths
-innodb_data_home_dir = $DATA_DIR
-innodb_log_group_home_dir = $DATA_DIR
+innodb_data_home_dir = ${DATA_DIR}
+innodb_log_group_home_dir = ${DATA_DIR}
 EOF
 
 mkdir "$DATA_DIR"/tmp && chown -R mysql:mysql "$DATA_DIR"
@@ -109,6 +122,7 @@ sudo systemctl start mariadb
 mysql -u root -p$ROOT_PASSWORD <<EOF
 CREATE USER ${REPLICATION_USER}@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '$REPLICATION_USER'@'%';
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 FLUSH TABLES WITH READ LOCK;
 SHOW MASTER STATUS;
@@ -118,7 +132,7 @@ NEW_USER="admin"
 
 # Connect to MariaDB as root and create user
 mysql -u root -p$ROOT_PASSWORD <<EOF
-CREATE USER '$NEW_USER'@'%' IDENTIFIED BY '$ROOT_PASSWORD';
+CREATE USER 'admin'@'%' IDENTIFIED BY '$ROOT_PASSWORD';
 GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOF

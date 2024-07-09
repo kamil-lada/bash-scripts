@@ -26,9 +26,6 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 DATA_DIR="/data/mariadb"
-BUFFER_POOL_SIZE="4G"
-LOG_FILE_SIZE="512M"
-BIND_ADDRESS="0.0.0.0" 
 
 sudo apt update && sudo apt install -y mariadb-server expect
 
@@ -42,7 +39,6 @@ sudo chown -R mysql:mysql $DATA_DIR
 
 CONFIG_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf"
 BACKUP_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf.bak.$(date +%F-%H-%M-%S)"
-DATA_DIR="/data/mariadb"
 
 # Backup the current configuration file
 sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
@@ -124,15 +120,6 @@ ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';
 FLUSH PRIVILEGES;
 FLUSH TABLES WITH READ LOCK;
 SHOW MASTER STATUS;
-EOF
-
-NEW_USER="admin"
-
-# Connect to MariaDB as root and create user
-mysql -u root -p$ROOT_PASSWORD <<EOF
-CREATE USER 'admin'@'%' IDENTIFIED BY '$ROOT_PASSWORD';
-GRANT ALL PRIVILEGES ON *.* TO '$NEW_USER'@'%' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
 EOF
 
 echo "MariaDB master setup complete. Note the 'File' and 'Position' from the SHOW MASTER STATUS output above."

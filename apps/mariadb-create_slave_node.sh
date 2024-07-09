@@ -139,6 +139,6 @@ FLUSH PRIVILEGES;
 EOF
 
 # Verify replication status
-mysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
+mysql -u root -p -e "SHOW SLAVE STATUS \G"
 
 echo "MariaDB slave setup complete."

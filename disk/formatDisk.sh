@@ -3,7 +3,7 @@
 # Function to display available disks
 list_disks() {
     echo "Available disks:"
-    lsblk -d -o NAME,SIZE,MODEL | grep -v "NAME"
+    lsblk | grep -v "NAME"
 }
 
 # Function to format the disk with ext4 and mount it to /data
@@ -19,7 +19,7 @@ format_and_mount() {
 
     # Create a partition on the disk
     echo "Creating partition on /dev/${disk}..."
-    echo -e "o\nn\np\n1\n\n\nw" | sudo fdisk /dev/${disk}
+    echo -e "g\nn\np\n1\n\n\nw" | sudo fdisk /dev/${disk}
 
     # Format the partition with ext4
     echo "Formatting /dev/${disk}1 with ext4 filesystem..."

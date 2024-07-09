@@ -17,26 +17,33 @@ add_ssh_key() {
 
     # Check if the key is not empty
     if [ -n "$ssh_key" ]; then
-        echo "Adding SSH public key to authorized_keys:"
+        log "Adding SSH public key to authorized_keys:"
         echo "$ssh_key" >> /home/debian/.ssh/authorized_keys
     else
         echo "Empty input received. Stopping."
-        exit 0
     fi
 }
 
-###################################################################################################   START
+############################################################# START
 
-log "Enter SSH public key(s) to add to authorized_keys (leave empty to finish):"
+# Ensure .ssh directory exists
+mkdir -p /home/debian/.ssh && chown -R debian:debian /home/debian/.ssh
 
-mkdir -p /home/debian/.ssh || error "Failed to create /root/.ssh directory."
 # Loop to prompt user for SSH public keys
 while true; do
     read -p "SSH Public Key: " ssh_key_input
 
+    # Break the loop if input is empty
+    if [ -z "$ssh_key_input" ]; then
+        echo "No more keys to add. Exiting."
+        break
+    fi
+
     # Call function to add SSH key to authorized_keys
     add_ssh_key "$ssh_key_input"
 done
+
+log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys."
 
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
@@ -44,7 +51,7 @@ chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions 
 # Install common packages
 log "Installing common packages..."
 wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump > /dev/null 2>&1 || error "Failed to install common packages."
+apt update > /dev/null 2>&1 && apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
 rm zabbix-release_7.0-1+debian12* > /dev/null 2>&1
 cat <<EOL | sudo tee /etc/zabbix/zabbix-agent2.conf
 BufferSend=5
@@ -117,7 +124,7 @@ fi
 SSH_CONFIG="/etc/ssh/sshd_config"
 
 # Backup the current SSH configuration file
-cp "$SSH_CONFIG" "${SSH_CONFIG}.bak"
+cp "$SSH_CONFIG" "${SSH_CONFIG}.bak.$(date +%F-%H-%M-%S)"
 
 # Function to add or replace a configuration setting
 add_or_replace_setting() {
@@ -196,9 +203,49 @@ echo > ~/.bash_history || error "Failed to clear .bash_history."
 
 # Verify Java installation
 log "Verifying Java installation..."
-java -version || error "Java is not installed properly."
+java -version > /dev/null 2>&1 || error "Java is not installed properly."
 
-rm -- "$0"
+# Identify new disks (assumes /dev/sdb is the new disk)
+NEW_DISK="/dev/sdb"
+PARTITION="${NEW_DISK}1"
+MOUNT_POINT="/data"
+
+# Create a GPT partition table on the new disk
+log "Creating GPT partition table on $NEW_DISK..."
+parted $NEW_DISK --script mklabel gpt >/dev/null 2>&1 || error "Creating GPT partition table on $NEW_DISK failed."
+
+# Create a new partition that spans the entire disk
+log "Creating new partition on $NEW_DISK..."
+parted $NEW_DISK --script mkpart primary ext4 0% 100% >/dev/null 2>&1 || error "Creating new partition on $NEW_DISK failed."
+
+# Create a filesystem on the new disk (if not already formatted)
+log "Creating filesystem on $PARTITION..."
+mkfs.ext4 ${PARTITION}
+
+# Create the mount point
+log "Creating mount point $MOUNT_POINT..."
+mkdir -p $MOUNT_POINT || error "Creating mount point failed."
+
+# Get the UUID of the new partition
+UUID=$(blkid -s UUID -o value $PARTITION)
+
+# Add the new partition to /etc/fstab using UUID
+echo "Adding $PARTITION to /etc/fstab..."
+echo "UUID=$UUID    $MOUNT_POINT    ext4    defaults    0 2" >> /etc/fstab
+
+systemctl daemon-reload
+
+# Mount the new disk
+log "Mounting $PARTITION..."
+mount -a > /dev/null 2>&1 || error "Mounting $PARTITION... failed."
+
+# Reconfigure GRUB
+log "Updating GRUB configuration..."
+update-grub > /dev/null 2>&1 || error "Updating GRUB failed."
+
+# Install GRUB on the primary disk (assuming /dev/sda)
+log "Installing GRUB on /dev/sda..."
+grub-install /dev/sda >/dev/null 2>&1 || error "Installing GRUB failed."
 
 
 log "VM preparation completed successfully."

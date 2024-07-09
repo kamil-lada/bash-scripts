@@ -13,7 +13,7 @@ sudo apt-get install -y \
 
 # Create Docker group and add the current user to it
 sudo groupadd docker >/dev/null 2>&1 || true
-sudo usermod -aG docker $USER
+sudo usermod -aG docker debian
 
 # Apply group changes immediately
 newgrp docker <<EOF

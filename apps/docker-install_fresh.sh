@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e  # Exit script on any error
-
 # Update package index
 sudo apt-get update
 
@@ -14,21 +12,11 @@ sudo apt-get install -y \
     docker-compose-plugin
 
 # Create Docker group and add the current user to it
-if ! sudo groupadd docker >/dev/null 2>&1; then
-    echo "Failed to create docker group."
-    exit 1
-fi
-
-if ! sudo usermod -aG docker debian; then
-    echo "Failed to add user to docker group."
-    exit 1
-fi
+sudo groupadd docker >/dev/null 2>&1 || true
+sudo usermod -aG docker debian
 
 # Apply group changes immediately
-newgrp docker <<EOF
-# Output current groups for debugging
-groups
-EOF
+# No need for `newgrp docker` here
 
 # Configure Docker to use custom data directory
 # Ensure the custom directory exists and has proper permissions

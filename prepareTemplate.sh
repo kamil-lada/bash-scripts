@@ -51,9 +51,13 @@ chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions 
 # Install common packages
 log "Installing common packages..."
 wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
+apt update > /dev/null 2>&1 && apt install -y vim git jq software-properties-common dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
 rm zabbix-release_7.0-1+debian12* > /dev/null 2>&1
-cat <<EOL | sudo tee /etc/zabbix/zabbix-agent2.conf
+sudo mkdir -p /var/lib/zabbix
+sudo chown -R zabbix:zabbix /var/lib/zabbix
+sudo rm -rf /etc/zabbix/zabbix_agent2.conf
+sudo rm -rf /etc/zabbix/zabbix-agent2.conf
+cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf
 BufferSend=5
 BufferSize=100
 EnablePersistentBuffer=0

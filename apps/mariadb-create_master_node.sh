@@ -17,13 +17,8 @@ install_mariadb() {
     sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian bookworm main" #>/dev/null 2>&1
 
     # Update package list and install MariaDB (mute outputs)
-<<<<<<< HEAD
-    sudo apt-get update #>/dev/null 2>&1
-    sudo apt-get install -y mariadb-server #>/dev/null 2>&1
-=======
     sudo apt-get update >/dev/null 2>&1
     sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
->>>>>>> d172616 (mariadb creater master - major refactor)
 
     # Confirm installation with version
     echo "MariaDB Server version $version installed successfully."
@@ -53,11 +48,7 @@ echo ""
 DEFAULT_VERSION="10.11"
 
 # Prompt user for version
-<<<<<<< HEAD
-read -p "Enter the version you want to install or press Enter to select a version from above (default is $DEFAULT_VERSION): " selected_version
-=======
 read -p "Enter the version you want to install (default is $DEFAULT_VERSION): " selected_version
->>>>>>> d172616 (mariadb creater master - major refactor)
 
 # If no version is selected, use the default
 if [ -z "$selected_version" ]; then
@@ -80,18 +71,13 @@ DEFAULT_DATA_DIR="/var/lib/mysql"
 read -p "Enter custom location path for MariaDB data directory (default: $DEFAULT_DATA_DIR, opt: /data/mariadb): " DATA_DIR
 DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
 
-
 # Stop MariaDB service
 sudo systemctl stop mariadb
 
 # Create new data directory and move existing data only if custom path is provided
 if [ "$DATA_DIR" != "/var/lib/mysql" ]; then
   sudo mkdir -p $DATA_DIR
-<<<<<<< HEAD
-  sudo rsync -av /var/lib/mysql/ $DATA_DIR/
-=======
-  sudo rsync -aq /var/lib/mysql/ $DATA_DIR/ 
->>>>>>> d172616 (mariadb creater master - major refactor)
+  sudo rsync -aq /var/lib/mysql/ $DATA_DIR/
   sudo chown -R mysql:mysql $DATA_DIR
 fi
 
@@ -185,21 +171,13 @@ EOF
 # Add replication settings only if replication is enabled
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     SERVER_ID=$(($RANDOM % 100))
-<<<<<<< HEAD
-    cat <<EOF | sudo tee -a "$CONFIG_FILE"
-=======
     cat >/dev/null <<EOF | sudo tee -a "$CONFIG_FILE"
->>>>>>> d172616 (mariadb creater master - major refactor)
         # Replication Settings
         server_id = ${SERVER_ID}
         log_bin = ${DATA_DIR}/mariadb-bin
         binlog_format = ROW
         binlog_checksum = CRC32
         gtid_strict_mode = ON
-<<<<<<< HEAD
-        gtid_domain_id = 1
-=======
->>>>>>> d172616 (mariadb creater master - major refactor)
         log_slave_updates = ON
 EOF
 fi
@@ -298,5 +276,4 @@ if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     mysql -u root -p$ROOT_PASSWORD <<EOF
         SHOW MASTER STATUS;
 EOF
-
 fi

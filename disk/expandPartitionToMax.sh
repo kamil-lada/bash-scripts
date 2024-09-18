@@ -11,14 +11,23 @@ expand_ext4_partition() {
     local disk="$1"
     local partition_number="$2"
 
+    # Fix the GPT table (force fixing without user prompt)
+    echo "Fixing GPT table..."
+    echo "Fix" | sudo parted ---pretend-input-tty "/dev/$disk" print
 
     # Resize the partition to use all available space
-    sudo parted "/dev/$disk" resizepart "$partition_number" 100%
+    echo "Resizing partition..."
+    # Use `yes` to automatically respond "Yes" to the partition being in use prompt
+    yes | sudo parted ---pretend-input-tty "/dev/$disk" resizepart "$partition_number" 100%
 
     # Resize the filesystem
     sudo resize2fs "/dev/${disk}${partition_number}"
 
+    # Get the new size of the partition
+    new_size=$(lsblk -n -o SIZE "/dev/${disk}${partition_number}")
+
     echo "Partition /dev/${disk}${partition_number} expanded successfully."
+    echo "New partition size: $new_size"
 }
 
 # Main script starts here
@@ -38,7 +47,7 @@ fi
 
 # Confirm with user before proceeding
 read -p "You are about to expand /dev/${disk}${partition_number}. Are you sure? (y/n): " confirm
-if [ "$confirm" != "y" ]; then
+if [ "$confirm" ! = "y" ]; then
     echo "Operation aborted."
     exit 1
 fi

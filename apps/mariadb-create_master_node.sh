@@ -22,7 +22,7 @@ install_mariadb() {
 }
 
 # Variables
-read -ps "Please enter root password: " ROOT_PASSWORD
+read -sp "Please enter root password: " ROOT_PASSWORD
 
 # Check if the input is not empty
 if [ -z "$ROOT_PASSWORD" ]; then
@@ -31,7 +31,7 @@ if [ -z "$ROOT_PASSWORD" ]; then
 fi
 
 # Variables
-read -p "Please enter password for MariaDB root user: " MARIADB_ROOT_PASSWORD
+read -sp "Please enter password for MariaDB root user: " MARIADB_ROOT_PASSWORD
 
 # Check if the input is not empty
 if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
@@ -102,7 +102,7 @@ REPLICATION_USER="replica_user"
 
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     # Ask the user for the replication password only if replication is enabled
-    read -p "Please enter REPLICATION_PASSWORD for $REPLICATION_USER: " REPLICATION_PASSWORD
+    read -sp "Please enter REPLICATION_PASSWORD for $REPLICATION_USER: " REPLICATION_PASSWORD
 
     # Check if the input is not empty
     if [ -z "$REPLICATION_PASSWORD" ]; then

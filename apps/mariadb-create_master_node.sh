@@ -11,12 +11,9 @@ get_latest_versions() {
 install_mariadb() {
     local version=$1
 
-    # Add MariaDB repository (mute command outputs)
-    # sudo apt-get install -y software-properties-common dirmngr >/dev/null 2>&1
-    sudo apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc' #>/dev/null 2>&1
-    sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian bookworm main" #>/dev/null 2>&1
+    sudo apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc' >/dev/null 2>&1
+    sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian bookworm main" >/dev/null 2>&1
 
-    # Update package list and install MariaDB (mute outputs)
     sudo apt-get update >/dev/null 2>&1
     sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
 
@@ -226,7 +223,7 @@ expect eof
 ")
 
 # Run the Expect script
-echo "$SECURE_MYSQL"
+echo "$SECURE_MYSQL" >/dev/null 2>&1
 
 echo "MySQL secure installation automated successfully."
 
@@ -274,6 +271,6 @@ fi
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     echo "ServerID for replica setup: $SERVER_ID."
     mysql -u root -p$ROOT_PASSWORD <<EOF
-        SHOW MASTER STATUS;
+        SHOW MASTER STATUS\G
 EOF
 fi

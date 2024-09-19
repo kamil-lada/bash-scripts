@@ -1,7 +1,28 @@
 #!/bin/bash
-# Variables
-read -sp "Please enter master host: " MASTER_HOST
 
+# Function to fetch the latest MariaDB versions
+get_latest_versions() {
+    # Query MariaDB repository for the latest stable versions
+    curl -s 'https://downloads.mariadb.org/rest-api/mariadb' | \
+    jq -r '[.major_releases[] | select(.release_status == "Stable") | .release_id]'
+}
+
+# Function to install MariaDB
+install_mariadb() {
+    local version=$1
+
+    sudo apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc' >/dev/null 2>&1
+    sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian bookworm main" >/dev/null 2>&1
+
+    sudo apt-get update >/dev/null 2>&1
+    sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
+
+    # Confirm installation with version
+    echo "MariaDB Server version $version installed successfully."
+}
+
+read -p "Please enter master host: " MASTER_HOST
+echo
 # Check if the input is not empty
 if [ -z "$MASTER_HOST" ]; then
   error "Value cannot be empty. Exiting."
@@ -10,7 +31,7 @@ fi
 
 # Variables
 read -sp "Please enter replication user password: " REPLICATION_PASSWORD
-
+echo
 # Check if the input is not empty
 if [ -z "$REPLICATION_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."
@@ -18,8 +39,8 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 # Variables
-read -sp "Please enter master server id: " SERVER_ID
-
+read -p "Please enter master server id: " SERVER_ID
+echo
 # Check if the input is not empty
 if [ -z "$SERVER_ID" ]; then
   error "Value cannot be empty. Exiting."
@@ -28,7 +49,7 @@ fi
 
 # Variables
 read -sp "Please enter password for MariaDB root user: " MARIADB_ROOT_PASSWORD
-
+echo
 # Check if the input is not empty
 if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
   echo "Value cannot be empty. Exiting."
@@ -40,7 +61,7 @@ REPLICATION_USER="replica_user"
 
 # Variables
 read -sp "Please enter root password: " ROOT_PASSWORD
-
+echo
 # Check if the input is not empty
 if [ -z "$ROOT_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."

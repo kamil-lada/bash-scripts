@@ -22,7 +22,6 @@ install_mariadb() {
 }
 
 read -p "Please enter master host: " MASTER_HOST
-echo
 # Check if the input is not empty
 if [ -z "$MASTER_HOST" ]; then
   error "Value cannot be empty. Exiting."
@@ -40,9 +39,24 @@ fi
 
 # Variables
 read -p "Please enter master server id: " SERVER_ID
-echo
 # Check if the input is not empty
 if [ -z "$SERVER_ID" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter master binlog name: " BINLOG
+# Check if the input is not empty
+if [ -z "$BINLOG" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter master log position: " POSITION
+# Check if the input is not empty
+if [ -z "$POSITION" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
@@ -252,6 +266,22 @@ echo "MySQL secure installation automated successfully."
 mysql -u root -p$ROOT_PASSWORD <<EOF
 STOP SLAVE;
 CHANGE MASTER TO
+    MASTER_HOST='$MASTER_HOST',
+    MASTER_USER='$REPLICATION_USER',
+    MASTER_PASSWORD='$REPLICATION_PASSWORD',
+    MASTER_LOG_FILE='mariadb-bin.000016',
+    MASTER_LOG_POS=11699940;
+START SLAVE;
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
+FLUSH PRIVILEGES;
+EOF
+
+# Just in case
+sleep 3
+# Set up replication
+mysql -u root -p$ROOT_PASSWORD <<EOF
+STOP SLAVE;
+CHANGE MASTER TO
   MASTER_HOST='$MASTER_HOST',
   MASTER_USER='$REPLICATION_USER',
   MASTER_PASSWORD='$REPLICATION_PASSWORD',
@@ -277,6 +307,6 @@ echo "MariaDB has been restarted to apply changes."
 echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
 # Verify replication status
-mysql -u root -p -e "SHOW SLAVE STATUS \G"
+mysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
 
 echo "MariaDB slave setup complete."

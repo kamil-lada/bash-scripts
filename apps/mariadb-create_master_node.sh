@@ -23,7 +23,7 @@ install_mariadb() {
 
 # Variables
 read -sp "Please enter root password: " ROOT_PASSWORD
-
+echo
 # Check if the input is not empty
 if [ -z "$ROOT_PASSWORD" ]; then
   echo "Value cannot be empty. Exiting."
@@ -103,7 +103,7 @@ REPLICATION_USER="replica_user"
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     # Ask the user for the replication password only if replication is enabled
     read -sp "Please enter REPLICATION_PASSWORD for $REPLICATION_USER: " REPLICATION_PASSWORD
-
+    echo
     # Check if the input is not empty
     if [ -z "$REPLICATION_PASSWORD" ]; then
       echo "Value cannot be empty. Exiting."
@@ -261,12 +261,8 @@ EOF
     echo "Zabbix monitoring user 'zbx_monitor' created."
 fi
 
-# Restart MariaDB to apply changes
 systemctl restart mariadb
 echo "MariaDB has been restarted to apply changes."
-
-# Inform the user about created users
-echo "MariaDB master setup complete."
 
 echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
@@ -277,3 +273,5 @@ if [[ "$REPLICATION_CHOICE" == "y" ]]; then
         SHOW MASTER STATUS\G
 EOF
 fi
+
+echo "MariaDB master setup complete."

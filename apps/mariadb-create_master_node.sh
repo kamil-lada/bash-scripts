@@ -22,10 +22,19 @@ install_mariadb() {
 }
 
 # Variables
-read -p "Please enter ROOT_PASSWORD: " ROOT_PASSWORD
+read -ps "Please enter root password: " ROOT_PASSWORD
 
 # Check if the input is not empty
 if [ -z "$ROOT_PASSWORD" ]; then
+  echo "Value cannot be empty. Exiting."
+  exit 1
+fi
+
+# Variables
+read -p "Please enter password for MariaDB root user: " MARIADB_ROOT_PASSWORD
+
+# Check if the input is not empty
+if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
   echo "Value cannot be empty. Exiting."
   exit 1
 fi
@@ -112,7 +121,7 @@ if [[ "$ZABBIX_CHOICE" == "y" ]]; then
 fi
 
 # Add performance and durability settings to MariaDB configuration
-cat >/dev/null <<EOF | sudo tee "$CONFIG_FILE"
+cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 [mysqld]
 # Native options
 pid-file = /run/mysqld/mysqld.pid
@@ -168,7 +177,7 @@ EOF
 # Add replication settings only if replication is enabled
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     SERVER_ID=$(($RANDOM % 100))
-    cat >/dev/null <<EOF | sudo tee -a "$CONFIG_FILE"
+    cat  <<EOF | sudo tee -a "$CONFIG_FILE" >/dev/null
         # Replication Settings
         server_id = ${SERVER_ID}
         log_bin = ${DATA_DIR}/mariadb-bin
@@ -199,7 +208,7 @@ set timeout 10
 spawn mysql_secure_installation
 
 expect \"Enter current password for root (enter for none):\"
-send \"$ROOT_PASSWORD\r\"
+send \"$MARIADB_ROOT_PASSWORD\r\"
 
 expect \"Switch to unix_socket authentication \[Y/n\]\"
 send \"y\r\"
@@ -229,7 +238,7 @@ echo "MySQL secure installation automated successfully."
 
 # Configure MariaDB users
 mysql -u root -p$ROOT_PASSWORD <<EOF
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${ROOT_PASSWORD}';
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
 EOF
 
 # Create replication user only if replication is enabled
@@ -259,13 +268,7 @@ echo "MariaDB has been restarted to apply changes."
 # Inform the user about created users
 echo "MariaDB master setup complete."
 
-if [[ "$REPLICATION_CHOICE" == "y" ]]; then
-    echo "Replication user created: $REPLICATION_USER"
-fi
-
-if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    echo "Zabbix monitoring user created: zbx_monitor"
-fi
+echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
 # Reminder to note SHOW MASTER STATUS
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then

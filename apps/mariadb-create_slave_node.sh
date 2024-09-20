@@ -260,7 +260,7 @@ fi
 # Set up replication
 mysql -u root -p$ROOT_PASSWORD <<EOF
 STOP SLAVE;
-SET GLOBAL gtid_slave_pos = $GTID;
+SET GLOBAL gtid_slave_pos = '$GTID';
 CHANGE MASTER TO
   MASTER_HOST='$MASTER_HOST',
   MASTER_USER='$REPLICATION_USER',

@@ -21,7 +21,7 @@ install_mariadb() {
     echo "MariaDB Server version $version installed successfully."
 }
 
-read -p "Please enter master host: " MASTER_HOST
+read -p "Please enter master host address: " MASTER_HOST
 # Check if the input is not empty
 if [ -z "$MASTER_HOST" ]; then
   error "Value cannot be empty. Exiting."
@@ -38,15 +38,7 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 # Variables
-read -p "Please enter GTID value from master (SELECT @@gtid_current_pos;): " GTID
-# Check if the input is not empty
-if [ -z "$GTID" ]; then
-  error "Value cannot be empty. Exiting."
-  exit 1
-fi
-
-# Variables
-read -sp "Please enter password for MariaDB root user: " MARIADB_ROOT_PASSWORD
+read -sp "Please create password for MariaDB root user: " MARIADB_ROOT_PASSWORD
 echo
 # Check if the input is not empty
 if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
@@ -99,7 +91,7 @@ read -p "Do you want to create a Zabbix monitoring user? (y/N): " ZABBIX_CHOICE
 ZABBIX_CHOICE=${ZABBIX_CHOICE,,} # Convert to lowercase
 
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    read -sp "Enter password for Zabbix monitoring user 'zbx_monitor': " ZABBIX_PASSWORD
+    read -sp "Please create password for Zabbix monitoring user 'zbx_monitor': " ZABBIX_PASSWORD
     echo
 fi
 echo "Installation may take up to 4 minutes, grab some coffee."
@@ -255,6 +247,14 @@ GRANT REPLICATION CLIENT, PROCESS, SLAVE MONITOR, SHOW DATABASES, SHOW VIEW, SEL
 FLUSH PRIVILEGES;
 EOF
     echo "Zabbix monitoring user 'zbx_monitor' created."
+fi
+
+# Variables
+read -p "Please enter GTID value from master (SELECT @@gtid_current_pos;): " GTID
+# Check if the input is not empty
+if [ -z "$GTID" ]; then
+  error "Value cannot be empty. Exiting."
+  exit 1
 fi
 
 # Set up replication

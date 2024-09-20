@@ -38,17 +38,9 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 # Variables
-read -p "Please enter master binlog name: " BINLOG
+read -p "Please enter GTID value from master (SELECT @@gtid_current_pos;): " GTID
 # Check if the input is not empty
-if [ -z "$BINLOG" ]; then
-  error "Value cannot be empty. Exiting."
-  exit 1
-fi
-
-# Variables
-read -p "Please enter master log position: " POSITION
-# Check if the input is not empty
-if [ -z "$POSITION" ]; then
+if [ -z "$GTID" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
@@ -268,22 +260,7 @@ fi
 # Set up replication
 mysql -u root -p$ROOT_PASSWORD <<EOF
 STOP SLAVE;
-CHANGE MASTER TO
-    MASTER_HOST='$MASTER_HOST',
-    MASTER_USER='$REPLICATION_USER',
-    MASTER_PASSWORD='$REPLICATION_PASSWORD',
-    MASTER_LOG_FILE='$BINLOG',
-    MASTER_LOG_POS=$POSITION;
-START SLAVE;
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
-FLUSH PRIVILEGES;
-EOF
-
-# Just in case
-sleep 5
-# Set up replication
-mysql -u root -p$ROOT_PASSWORD <<EOF
-STOP SLAVE;
+SET GLOBAL gtid_slave_pos = $GTID;
 CHANGE MASTER TO
   MASTER_HOST='$MASTER_HOST',
   MASTER_USER='$REPLICATION_USER',
@@ -296,6 +273,8 @@ systemctl restart mariadb
 echo "MariaDB has been restarted to apply changes."
 echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
+# Just in case
+sleep 3
 # Verify replication status
 mysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
 

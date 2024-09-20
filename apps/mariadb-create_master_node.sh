@@ -267,10 +267,8 @@ echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
 # Reminder to note SHOW MASTER STATUS
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
-    echo "ServerID for replica setup: $SERVER_ID."
-    mysql -u root -p$ROOT_PASSWORD <<EOF
-        SHOW MASTER STATUS\G
-EOF
+    gtid=`mysql -u root -p$ROOT_PASSWORD -s -N -e "SELECT @@gtid_current_pos;"`
+    echo "GTID value for replica setup: ${gtid}"
 fi
 
 echo "MariaDB master setup complete."

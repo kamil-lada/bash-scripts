@@ -12,32 +12,30 @@ DB_ENGINE=$1
 ADDRESS=$2
 PORT=$3
 
-# Common prompts
-echo -n "DB name: "
-read DB_NAME
-
 case "$DB_ENGINE" in
     mysql)
-        echo -n "Enter MySQL root password: "
+        echo -n "Enter MariaDB root password: "
         read -s ROOT_PASSWORD
         echo
-
+        echo -n "Enter new MariaDB database name: "
+        read DB_NAME
+        echo
         mysql -h "$ADDRESS" -P "$PORT" -u root -p"$ROOT_PASSWORD" -e "CREATE DATABASE \`$DB_NAME\`;"
         if [ $? -ne 0 ]; then
-            echo "Failed to create MySQL database."
+            echo "Failed to create MariaDB database."
             exit 1
         fi
 
-        echo -n "Enter new MySQL username: "
+        echo -n "Enter new MariaDB username: "
         read NEW_USER
 
-        echo -n "Enter password for new MySQL user: "
+        echo -n "Enter password for new MariaDB user: "
         read -s NEW_USER_PASSWORD
         echo
 
         mysql -h "$ADDRESS" -P "$PORT" -u root -p"$ROOT_PASSWORD" -e "CREATE USER '$NEW_USER'@'%' IDENTIFIED BY '$NEW_USER_PASSWORD'; GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$NEW_USER'@'%'; FLUSH PRIVILEGES;"
         if [ $? -ne 0 ]; then
-            echo "Failed to create MySQL user or grant privileges."
+            echo "Failed to create MariaDB user or grant privileges."
             exit 1
         fi
 
@@ -47,6 +45,9 @@ case "$DB_ENGINE" in
     postgresql)
         echo -n "Enter PostgreSQL superuser password: "
         read -s ROOT_PASSWORD
+        echo
+        echo -n "Enter new PostgreSQL database name: "
+        read DB_NAME
         echo
 
         export PGPASSWORD=$ROOT_PASSWORD
@@ -79,6 +80,10 @@ case "$DB_ENGINE" in
 
         echo -n "Enter MongoDB root password: "
         read -s ROOT_PASSWORD
+        echo
+
+        echo -n "Enter new MongoDB database name: "
+        read DB_NAME
         echo
 
         mongo --host "$ADDRESS" --port "$PORT" -u "$ROOT_USER" -p "$ROOT_PASSWORD" --authenticationDatabase "admin" --eval "db.getSiblingDB('$DB_NAME').createUser({user: '$NEW_USER', pwd: '$NEW_USER_PASSWORD', roles: [{role: 'dbOwner', db: '$DB_NAME'}]})"

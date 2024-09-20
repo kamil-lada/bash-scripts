@@ -50,6 +50,9 @@ sudo systemctl start docker
 # Test Docker installation
 docker run hello-world
 
+# Add zabbix user to docker grp
+sudo gpasswd -a zabbix docker
+
 # Clean up the backup if everything works correctly
 if [ $? -eq 0 ]; then
     sudo rm -rf /var/lib/docker.old

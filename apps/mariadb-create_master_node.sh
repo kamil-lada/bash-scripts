@@ -176,10 +176,9 @@ EOF
 
 # Add replication settings only if replication is enabled
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
-    SERVER_ID=$(($RANDOM % 100))
     cat  <<EOF | sudo tee -a "$CONFIG_FILE" >/dev/null
         # Replication Settings
-        server_id = ${SERVER_ID}
+        server_id = 1
         log_bin = ${DATA_DIR}/mariadb-bin
         binlog_format = ROW
         binlog_checksum = CRC32

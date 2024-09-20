@@ -38,14 +38,6 @@ if [ -z "$REPLICATION_PASSWORD" ]; then
 fi
 
 # Variables
-read -p "Please enter master server id: " SERVER_ID
-# Check if the input is not empty
-if [ -z "$SERVER_ID" ]; then
-  error "Value cannot be empty. Exiting."
-  exit 1
-fi
-
-# Variables
 read -p "Please enter master binlog name: " BINLOG
 # Check if the input is not empty
 if [ -z "$BINLOG" ]; then
@@ -103,6 +95,22 @@ if [ -z "$selected_version" ]; then
     selected_version=$DEFAULT_VERSION
 fi
 
+# Default data directory
+DEFAULT_DATA_DIR="/var/lib/mysql"
+
+# Ask user about custom data directory location, fallback to default
+read -p "Enter custom location path for MariaDB data directory (default: $DEFAULT_DATA_DIR, opt: /data/mariadb): " DATA_DIR
+DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
+
+# Ask user if they want to create a Zabbix monitoring user
+read -p "Do you want to create a Zabbix monitoring user? (y/N): " ZABBIX_CHOICE
+ZABBIX_CHOICE=${ZABBIX_CHOICE,,} # Convert to lowercase
+
+if [[ "$ZABBIX_CHOICE" == "y" ]]; then
+    read -sp "Enter password for Zabbix monitoring user 'zbx_monitor': " ZABBIX_PASSWORD
+    echo
+fi
+echo "Installation may take up to 4 minutes, grab some coffee."
 # Check if selected version is valid (matches the available versions)
 if [[ "$LATEST_VERSIONS" == *"$selected_version"* || "$selected_version" == "$DEFAULT_VERSION" ]]; then
     echo "Installing MariaDB version $selected_version..."
@@ -111,13 +119,6 @@ else
     echo "Error: Invalid version selected. Aborting."
     exit 1
 fi
-
-# Default data directory
-DEFAULT_DATA_DIR="/var/lib/mysql"
-
-# Ask user about custom data directory location, fallback to default
-read -p "Enter custom location path for MariaDB data directory (default: $DEFAULT_DATA_DIR, opt: /data/mariadb): " DATA_DIR
-DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
 
 # Stop MariaDB service
 sudo systemctl stop mariadb
@@ -134,15 +135,6 @@ BACKUP_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf.bak.$(date +%F-%H-%M-%S)"
 
 # Backup the current configuration file
 sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
-
-# Ask user if they want to create a Zabbix monitoring user
-read -p "Do you want to create a Zabbix monitoring user? (y/N): " ZABBIX_CHOICE
-ZABBIX_CHOICE=${ZABBIX_CHOICE,,} # Convert to lowercase
-
-if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    read -sp "Enter password for Zabbix monitoring user 'zbx_monitor': " ZABBIX_PASSWORD
-    echo
-fi
 
 # Add performance and durability settings to MariaDB configuration
 cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
@@ -176,6 +168,7 @@ binlog_format = ROW
 binlog_checksum = CRC32
 gtid_strict_mode = ON
 slave_exec_mode = IDEMPOTENT
+slave_parallel_mode = none
 log_slave_updates = ON
 relay_log = $DATA_DIR/relay-bin
 read_only = 1
@@ -262,6 +255,16 @@ echo "$SECURE_MYSQL" >/dev/null 2>&1
 
 echo "MySQL secure installation automated successfully."
 
+# Create Zabbix monitoring user if requested
+if [[ "$ZABBIX_CHOICE" == "y" ]]; then
+    mysql -u root -p$ROOT_PASSWORD <<EOF
+CREATE USER 'zbx_monitor'@'%' IDENTIFIED BY '${ZABBIX_PASSWORD}';
+GRANT REPLICATION CLIENT, PROCESS, SLAVE MONITOR, SHOW DATABASES, SHOW VIEW, SELECT, REPLICATION SLAVE, BINLOG MONITOR ON *.* TO 'zbx_monitor'@'%';
+FLUSH PRIVILEGES;
+EOF
+    echo "Zabbix monitoring user 'zbx_monitor' created."
+fi
+
 # Set up replication
 mysql -u root -p$ROOT_PASSWORD <<EOF
 STOP SLAVE;
@@ -277,7 +280,7 @@ FLUSH PRIVILEGES;
 EOF
 
 # Just in case
-sleep 3
+sleep 5
 # Set up replication
 mysql -u root -p$ROOT_PASSWORD <<EOF
 STOP SLAVE;
@@ -287,20 +290,7 @@ CHANGE MASTER TO
   MASTER_PASSWORD='$REPLICATION_PASSWORD',
   MASTER_USE_GTID=slave_pos;
 START SLAVE;
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
-FLUSH PRIVILEGES;
 EOF
-
-
-# Create Zabbix monitoring user if requested
-if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    mysql -u root -p$ROOT_PASSWORD <<EOF
-CREATE USER 'zbx_monitor'@'%' IDENTIFIED BY '${ZABBIX_PASSWORD}';
-GRANT REPLICATION CLIENT, PROCESS, SLAVE MONITOR, SHOW DATABASES, SHOW VIEW, SELECT, REPLICATION SLAVE, BINLOG MONITOR ON *.* TO 'zbx_monitor'@'%';
-FLUSH PRIVILEGES;
-EOF
-    echo "Zabbix monitoring user 'zbx_monitor' created."
-fi
 
 systemctl restart mariadb
 echo "MariaDB has been restarted to apply changes."

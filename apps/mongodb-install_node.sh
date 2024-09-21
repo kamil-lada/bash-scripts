@@ -19,15 +19,6 @@ fi
 echo "Please enter the desired MongoDB data directory location (default: /var/lib/mongodb, opt: /data/mongodb):"
 read -p "Data directory: " data_dir
 
-if [ -z "$data_dir" ]; then
-    data_dir="/var/lib/mongodb"
-fi
-
-if [ ! -d "$data_dir" ]; then
-    mkdir -p "$data_dir" || log_error "Failed to create directory $data_dir"
-fi
-chown -R mongodb:mongodb "$data_dir" || log_error "Failed to set permissions on $data_dir"
-
 echo "Installing MongoDB..."
 sudo rm /usr/share/keyrings/mongodb-server-7.0.gpg  > /dev/null 2>&1
 curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor  2>/dev/null || log_error "Failed to add MongoDB GPG key"
@@ -47,6 +38,15 @@ net:
   bindIp: 0.0.0.0
   port: 27017
 EOL
+
+if [ -z "$data_dir" ]; then
+    data_dir="/var/lib/mongodb"
+fi
+
+if [ ! -d "$data_dir" ]; then
+    mkdir -p "$data_dir" || log_error "Failed to create directory $data_dir"
+fi
+chown -R mongodb:mongodb "$data_dir" || log_error "Failed to set permissions on $data_dir"
 
 systemctl start mongod
 sleep 5

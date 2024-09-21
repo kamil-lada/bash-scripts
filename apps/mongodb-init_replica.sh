@@ -37,7 +37,7 @@ setup_replication() {
     local CONFIG_STRING="$4"
 
     # Step 3: Connect to each host and setup replication
-    mongo --host "$HOST" -u "$USER" -p "$PASSWORD" --authenticationDatabase "admin" <<EOF
+    mongosh --host "$HOST" -u "$USER" -p "$PASSWORD" --authenticationDatabase "admin" <<EOF
     rs.initiate({
         _id: "rs0",
         members: [

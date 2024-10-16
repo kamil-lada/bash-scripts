@@ -11,6 +11,18 @@ error() {
     exit 1
 }
 
+####################################################################  START
+
+# Prompt the user for a hostname
+read -p "Please enter the new hostname: " new_hostname
+
+# Check if the input is not empty
+if [ -z "$new_hostname" ]; then
+  error "Hostname cannot be empty. Exiting."
+  exit 1
+fi
+
+
 MACHINE_ID_FILE="/etc/machine-id"
 
 # Check if the machine-id file exists and is not empty
@@ -20,9 +32,9 @@ else
     echo "machine-id is empty or not set. Generating a new machine-id..."
     
     # Generate a new machine-id
-    sudo systemd-machine-id-setup
+    sudo systemd-machine-id-setup > /dev/null 2>&1
     # Restart the D-Bus service
-    sudo systemctl restart dbus
+    sudo systemctl restart dbus > /dev/null 2>&1
     
     # Verify if the machine-id was successfully generated
     if [ -s "$MACHINE_ID_FILE" ]; then
@@ -42,13 +54,13 @@ log "Removing SSH host keys..."
 rm -f /etc/ssh/ssh_host_* || error "Failed to remove SSH host keys."
 # Generate SSH host keys if they do not exist
 if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then
-  ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N '' || error "Failed to create ssh_host_rsa_key host keys."
+  ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''  > /dev/null 2>&1 || error "Failed to create ssh_host_rsa_key host keys."
 fi
 if [ ! -f /etc/ssh/ssh_host_ecdsa_key ]; then
-  ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N '' || error "Failed to create ssh_host_ecdsa_key host keys."
+  ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N ''  > /dev/null 2>&1 || error "Failed to create ssh_host_ecdsa_key host keys."
 fi
 if [ ! -f /etc/ssh/ssh_host_ed25519_key ]; then
-  ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N '' || error "Failed to create ssh_host_ed25519_key host keys."
+  ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''  > /dev/null 2>&1 || error "Failed to create ssh_host_ed25519_key host keys."
 fi
 log "Restarting SSH"
 systemctl restart ssh || error "Failed to restart SSH service."
@@ -60,7 +72,7 @@ if [ -f /etc/network/interfaces ]; then
 fi
 
 # Start with a new interfaces file
-cat <<EOL | sudo tee /etc/network/interfaces
+cat <<EOL | sudo tee /etc/network/interfaces  > /dev/null 2>&1
 # This file describes the network interfaces available on your system
 # and how to activate them. For more information, see interfaces(5).
 
@@ -75,7 +87,7 @@ interfaces=$(ls /sys/class/net | grep -v lo | grep -v docker0)
 
 # Add DHCP configuration for each interface
 for iface in $interfaces; do
-    cat <<EOL | sudo tee -a /etc/network/interfaces
+    cat <<EOL | sudo tee -a /etc/network/interfaces  > /dev/null 2>&1
 
 # DHCP configuration for $iface
 auto $iface
@@ -103,21 +115,12 @@ log "All non-loopback network interfaces have been brought up."
 
 sudo dhclient -v
 
-# Prompt the user for a hostname
-read -p "Please enter the new hostname: " new_hostname
-
-# Check if the input is not empty
-if [ -z "$new_hostname" ]; then
-  error "Hostname cannot be empty. Exiting."
-  exit 1
-fi
-
 # Get the current hostname
 current_hostname=$(hostname)
 
 # Replace the hostname in /etc/hosts
 
-sudo hostnamectl set-hostname "$new_hostname"
+sudo hostnamectl set-hostname "$new_hostname"  > /dev/null 2>&1
 
 log "The hostname has been set to: $(hostname)"
 

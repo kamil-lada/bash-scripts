@@ -4,9 +4,12 @@ log_error() {
     echo "[ERROR] $1" >&2
 }
 
-read -p "Enter MongoDB admin username: " admin_user
-read -s -p "Enter MongoDB admin password: " admin_password
+read -p "Create MongoDB admin username: " admin_user
+read -s -p "Create MongoDB admin password: " admin_password
 echo
+
+read -p "Do you want to prepare host for replication? (y/N): " REPLICATION_CHOICE
+REPLICATION_CHOICE=${REPLICATION_CHOICE,,} # Convert to lowercase
 
 read -p "Do you want to create a Zabbix monitoring user? (y/N): " zbx_choice
 zbx_choice=${zbx_choice,,} # Convert to lowercase
@@ -26,19 +29,6 @@ echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.m
 apt-get update -qq || log_error "Failed to update apt repositories"
 apt-get install -qq mongodb-org || log_error "MongoDB installation failed"
 
-echo "Configuring MongoDB security..."
-cat > /etc/mongod.conf <<EOL
-security:
-  authorization: "enabled"
-
-storage:
-  dbPath: "$data_dir"
-
-net:
-  bindIp: 0.0.0.0
-  port: 27017
-EOL
-
 if [ -z "$data_dir" ]; then
     data_dir="/var/lib/mongodb"
 fi
@@ -48,8 +38,33 @@ if [ ! -d "$data_dir" ]; then
 fi
 chown -R mongodb:mongodb "$data_dir" || log_error "Failed to set permissions on $data_dir"
 
+
+echo "Configuring MongoDB security..."
+cat <<EOL | sudo tee /etc/mongod.conf >/dev/null
+security:
+  authorization: "enabled"
+  keyFile: /etc/mongo-keyfile
+
+storage:
+  dbPath: "$data_dir"
+
+net:
+  bindIp: 0.0.0.0
+  port: 27017
+
+
+EOL
+
+if [[ "$REPLICATION_CHOICE" == "y" ]]; then
+    cat  <<EOF | sudo tee -a /etc/mongod.conf >/dev/null
+replication:
+  replSetName: rs0
+EOF
+fi
+# Temporary key-file
+echo $(openssl rand -base64 756) > /etc/mongo-keyfile
 systemctl start mongod
-sleep 5
+sleep 10
 
 echo "Creating MongoDB admin user..."
 mongosh <<EOF
@@ -57,7 +72,7 @@ use admin
 db.createUser({
   user: "$admin_user",
   pwd: "$admin_password",
-  roles: [{ role: "userAdminAnyDatabase", db: "admin" }, { role: "dbAdminAnyDatabase", db: "admin" }, { role: "readWriteAnyDatabase", db: "admin" }]
+  roles: [{ role: "userAdminAnyDatabase", db: "admin" }, { role: "dbAdminAnyDatabase", db: "admin" }, { role: "root", db: "admin" }, { role: "readWriteAnyDatabase", db: "admin" }]
 })
 EOF
 

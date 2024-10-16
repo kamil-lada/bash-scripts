@@ -1,5 +1,11 @@
 #!/bin/bash
 
+############################
+#
+# Check interface name, line 101
+#
+############################
+
 # Define directories and Docker Compose files
 NPM_DIR="/data/npm"
 PORTAINER_DIR="/data/portainer"
@@ -50,7 +56,6 @@ services:
       - 81:81
       - 80:80
       - 443:443
-#      - 10123:10123
 
 networks:
   app-net:
@@ -84,7 +89,6 @@ EOL
 docker network rm app-net || true # Remove existing network if any
 docker network create \
         --driver bridge \
-        --subnet=10.20.20.0/24 \
         --opt com.docker.network.bridge.name=br-app \
         app-net
 
@@ -93,7 +97,6 @@ docker network create \
 docker network rm proxy-net || true  # Remove existing network if any
 docker network create \
         --driver bridge \
-        --subnet=10.20.21.0/24 \
         --opt com.docker.network.bridge.name=br-proxy \
         -o parent=eth0 \
         proxy-net

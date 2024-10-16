@@ -16,31 +16,24 @@ install_mariadb() {
 
     sudo apt-get update >/dev/null 2>&1
     sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
-
-    # Confirm installation with version
     echo "MariaDB Server version $version installed successfully."
 }
 
 read -p "Please enter master host address: " MASTER_HOST
-# Check if the input is not empty
 if [ -z "$MASTER_HOST" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
 
-# Variables
 read -sp "Please enter replication user password: " REPLICATION_PASSWORD
 echo
-# Check if the input is not empty
 if [ -z "$REPLICATION_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
 fi
 
-# Variables
 read -sp "Please create password for MariaDB root user: " MARIADB_ROOT_PASSWORD
 echo
-# Check if the input is not empty
 if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
   echo "Value cannot be empty. Exiting."
   exit 1
@@ -49,10 +42,8 @@ fi
 # Replication user variables
 REPLICATION_USER="replica_user"
 
-# Variables
 read -sp "Please enter root password: " ROOT_PASSWORD
 echo
-# Check if the input is not empty
 if [ -z "$ROOT_PASSWORD" ]; then
   error "Value cannot be empty. Exiting."
   exit 1
@@ -63,26 +54,20 @@ fi
 echo "Fetching latest MariaDB versions..."
 LATEST_VERSIONS=$(get_latest_versions)
 
-# Display available versions
 echo "Available MariaDB versions:"
 echo "$LATEST_VERSIONS"
 echo ""
 
-# Default MariaDB version if user does not select a version
 DEFAULT_VERSION="10.11"
 
-# Prompt user for version
 read -p "Enter the version you want to install (default is $DEFAULT_VERSION): " selected_version
 
-# If no version is selected, use the default
 if [ -z "$selected_version" ]; then
     selected_version=$DEFAULT_VERSION
 fi
 
-# Default data directory
 DEFAULT_DATA_DIR="/var/lib/mysql"
 
-# Ask user about custom data directory location, fallback to default
 read -p "Enter custom location path for MariaDB data directory (default: $DEFAULT_DATA_DIR, opt: /data/mariadb): " DATA_DIR
 DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
 
@@ -95,6 +80,7 @@ if [[ "$ZABBIX_CHOICE" == "y" ]]; then
     echo
 fi
 echo "Installation may take up to 4 minutes, grab some coffee."
+
 # Check if selected version is valid (matches the available versions)
 if [[ "$LATEST_VERSIONS" == *"$selected_version"* || "$selected_version" == "$DEFAULT_VERSION" ]]; then
     echo "Installing MariaDB version $selected_version..."
@@ -104,7 +90,6 @@ else
     exit 1
 fi
 
-# Stop MariaDB service
 sudo systemctl stop mariadb
 
 # Create new data directory and move existing data only if custom path is provided
@@ -117,10 +102,8 @@ fi
 CONFIG_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf"
 BACKUP_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf.bak.$(date +%F-%H-%M-%S)"
 
-# Backup the current configuration file
 sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
 
-# Add performance and durability settings to MariaDB configuration
 cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 [mysqld]
 # Native options
@@ -201,7 +184,6 @@ if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
     sudo systemctl reload apparmor
 fi
 
-# Start MariaDB service
 sudo systemctl start mariadb
 
 # Automating mysql_secure_installation with Expect
@@ -238,6 +220,7 @@ expect eof
 echo "$SECURE_MYSQL" >/dev/null 2>&1
 
 echo "MySQL secure installation automated successfully."
+echo "Running 'mysql_secure_installation' in unattended mode..."
 
 # Create Zabbix monitoring user if requested
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then
@@ -249,9 +232,8 @@ EOF
     echo "Zabbix monitoring user 'zbx_monitor' created."
 fi
 
-# Variables
 read -p "Please enter GTID value from master (SELECT @@gtid_current_pos;): " GTID
-# Check if the input is not empty
+echo
 if [ -z "$GTID" ]; then
   error "Value cannot be empty. Exiting."
   exit 1

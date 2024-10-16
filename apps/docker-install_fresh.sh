@@ -50,9 +50,6 @@ sudo systemctl start docker
 # Test Docker installation
 docker run hello-world
 
-# Add zabbix user to docker grp
-sudo gpasswd -a zabbix docker
-
 # Clean up the backup if everything works correctly
 if [ $? -eq 0 ]; then
     sudo rm -rf /var/lib/docker.old
@@ -64,6 +61,9 @@ else
     sudo mv /var/lib/docker.old /var/lib/docker
     sudo systemctl start docker
 fi
+
+# Add zabbix user to docker grp
+sudo gpasswd -a zabbix docker
 
 echo "Docker and Docker Compose installation and configuration completed."
 echo "Please log out and log back in for the group changes to take effect."

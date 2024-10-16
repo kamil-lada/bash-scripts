@@ -21,19 +21,14 @@ install_mariadb() {
     echo "MariaDB Server version $version installed successfully."
 }
 
-# Variables
 read -sp "Please enter root password: " ROOT_PASSWORD
 echo
-# Check if the input is not empty
 if [ -z "$ROOT_PASSWORD" ]; then
   echo "Value cannot be empty. Exiting."
   exit 1
 fi
 
-# Variables
-read -sp "Please enter password for MariaDB root user: " MARIADB_ROOT_PASSWORD
-
-# Check if the input is not empty
+read -sp "Create password for MariaDB root user: " MARIADB_ROOT_PASSWORD
 if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
   echo "Value cannot be empty. Exiting."
   exit 1
@@ -45,18 +40,14 @@ fi
 echo "Fetching latest MariaDB versions..."
 LATEST_VERSIONS=$(get_latest_versions)
 
-# Display available versions
 echo "Available MariaDB versions:"
 echo "$LATEST_VERSIONS"
 echo ""
 
-# Default MariaDB version if user does not select a version
 DEFAULT_VERSION="10.11"
 
-# Prompt user for version
 read -p "Enter the version you want to install (default is $DEFAULT_VERSION): " selected_version
 
-# If no version is selected, use the default
 if [ -z "$selected_version" ]; then
     selected_version=$DEFAULT_VERSION
 fi
@@ -70,14 +61,11 @@ else
     exit 1
 fi
 
-# Default data directory
 DEFAULT_DATA_DIR="/var/lib/mysql"
 
-# Ask user about custom data directory location, fallback to default
 read -p "Enter custom location path for MariaDB data directory (default: $DEFAULT_DATA_DIR, opt: /data/mariadb): " DATA_DIR
 DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
 
-# Stop MariaDB service
 sudo systemctl stop mariadb
 
 # Create new data directory and move existing data only if custom path is provided
@@ -89,11 +77,8 @@ fi
 
 CONFIG_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf"
 BACKUP_FILE="/etc/mysql/mariadb.conf.d/50-server.cnf.bak.$(date +%F-%H-%M-%S)"
-
-# Backup the current configuration file
 sudo cp "$CONFIG_FILE" "$BACKUP_FILE"
 
-# Ask user if they want to configure replication
 read -p "Do you want to configure replication? (y/N): " REPLICATION_CHOICE
 REPLICATION_CHOICE=${REPLICATION_CHOICE,,} # Convert to lowercase
 
@@ -101,26 +86,22 @@ REPLICATION_CHOICE=${REPLICATION_CHOICE,,} # Convert to lowercase
 REPLICATION_USER="replica_user"
 
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
-    # Ask the user for the replication password only if replication is enabled
     read -sp "Please enter REPLICATION_PASSWORD for $REPLICATION_USER: " REPLICATION_PASSWORD
     echo
-    # Check if the input is not empty
     if [ -z "$REPLICATION_PASSWORD" ]; then
       echo "Value cannot be empty. Exiting."
       exit 1
     fi
 fi
 
-# Ask user if they want to create a Zabbix monitoring user
 read -p "Do you want to create a Zabbix monitoring user? (y/N): " ZABBIX_CHOICE
 ZABBIX_CHOICE=${ZABBIX_CHOICE,,} # Convert to lowercase
 
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    read -sp "Enter password for Zabbix monitoring user 'zbx_monitor': " ZABBIX_PASSWORD
+    read -sp "Create password for Zabbix monitoring user 'zbx_monitor': " ZABBIX_PASSWORD
     echo
 fi
 
-# Add performance and durability settings to MariaDB configuration
 cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 [mysqld]
 # Native options
@@ -174,7 +155,6 @@ innodb_log_buffer_size = 32M
 innodb_log_file_size = 2047M
 EOF
 
-# Add replication settings only if replication is enabled
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     cat  <<EOF | sudo tee -a "$CONFIG_FILE" >/dev/null
         # Replication Settings
@@ -197,7 +177,6 @@ if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
     sudo systemctl reload apparmor
 fi
 
-# Start MariaDB service
 sudo systemctl start mariadb
 
 # Automating mysql_secure_installation with Expect
@@ -240,7 +219,6 @@ mysql -u root -p$ROOT_PASSWORD <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
 EOF
 
-# Create replication user only if replication is enabled
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     mysql -u root -p$ROOT_PASSWORD <<EOF
 CREATE USER '${REPLICATION_USER}'@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
@@ -250,7 +228,6 @@ EOF
     echo "Replication user '$REPLICATION_USER' created."
 fi
 
-# Create Zabbix monitoring user if requested
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then
     mysql -u root -p$ROOT_PASSWORD <<EOF
 CREATE USER 'zbx_monitor'@'%' IDENTIFIED BY '${ZABBIX_PASSWORD}';
@@ -265,7 +242,6 @@ echo "MariaDB has been restarted to apply changes."
 
 echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
-# Reminder to note SHOW MASTER STATUS
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     gtid=`mysql -u root -p$ROOT_PASSWORD -s -N -e "SELECT @@gtid_current_pos;"`
     echo "GTID value for replica setup: ${gtid}"

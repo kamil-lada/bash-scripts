@@ -26,6 +26,25 @@ add_ssh_key() {
 
 ############################################################# START
 
+# Configure 'debian' user for sudo without password
+username="debian"
+if id "debian" &>/dev/null; then
+    log "User 'debian' already exists. Skipping creation."
+    if sudo -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
+        log "User 'debian' already has sudo privileges. Skipping creation."
+    else
+        log "Granting sudo privileges to user debian"
+        echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
+        chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
+    fi
+else
+    log "Creating user 'debian' with sudo privileges..."
+    useradd -m -s /bin/bash debian || error "Failed to create user 'debian'."
+    echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
+    chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
+fi
+
+
 # Ensure .ssh directory exists
 mkdir -p /home/debian/.ssh && chown -R debian:debian /home/debian/.ssh
 
@@ -49,18 +68,20 @@ chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ow
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
 # Install common packages
-log "Installing common packages..."
-wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install -y vim git jq software-properties-common dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
-rm zabbix-release_7.0-1+debian12* > /dev/null 2>&1
+log "Installing common packages, it can take up to 5 minutes..."
+wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+12_all.deb && dpkg -i zabbix-release_latest+12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
+apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
+rm zabbix-release_latest+12_all.deb > /dev/null 2>&1
 sudo mkdir -p /var/lib/zabbix
+sudo mkdir -p /run/zabbix
 sudo chown -R zabbix:zabbix /var/lib/zabbix
-sudo rm -rf /etc/zabbix/zabbix_agent2.conf
-sudo rm -rf /etc/zabbix/zabbix-agent2.conf
-cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf
+sudo chown -R zabbix:zabbix /run/zabbix
+sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak > /dev/null 2>&1
+sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf > /dev/null 2>&1
+cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf  > /dev/null 2>&1
 BufferSend=5
 BufferSize=100
-EnablePersistentBuffer=0
+EnablePersistentBuffer=1
 HostMetadata=linux
 HostnameItem=system.hostname
 PersistentBufferFile=/var/lib/zabbix/zabbix_agent2.db
@@ -72,8 +93,8 @@ LogFile=/var/log/zabbix/zabbix_agent2.log
 LogFileSize=0
 PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
-Server=example.com
-ServerActive=example.com
+Server=10.0.10.10
+ServerActive=10.0.10.10
 EOL
 
 systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2
@@ -105,24 +126,6 @@ log "Installing qemu-guest-agent..."
 apt install -y qemu-guest-agent > /dev/null 2>&1 || error "Failed to install qemu-guest-agent."
 systemctl enable qemu-guest-agent > /dev/null 2>&1 || error "Failed to enable qemu-guest-agent."
 systemctl start qemu-guest-agent > /dev/null 2>&1 || error "Failed to start qemu-guest-agent."
-
-# Configure 'debian' user for sudo without password
-username="debian"
-if id "debian" &>/dev/null; then
-    log "User 'debian' already exists. Skipping creation."
-    if sudo -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
-        log "User 'debian' already has sudo privileges. Skipping creation."
-    else
-        log "Granting sudo privileges to user debian"
-        echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
-        chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
-    fi
-else
-    log "Creating user 'debian' with sudo privileges..."
-    useradd -m -s /bin/bash debian || error "Failed to create user 'debian'."
-    echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
-    chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
-fi
 
 # Path to the SSH configuration file
 SSH_CONFIG="/etc/ssh/sshd_config"
@@ -167,7 +170,7 @@ chmod +x /home/debian/bash-scripts/*.sh
 log "Removing password for root user..."
 passwd -d root > /dev/null 2>&1 || error "Failed to remove password for root user."
 
-# Set swappiness to a lower value (e.g., 10)
+# Set swappiness to a lower value
 log "Setting swappiness to 10..."
 echo "vm.swappiness = 10" >> /etc/sysctl.conf || error "Failed to set swappiness in /etc/sysctl.conf."
 sysctl -p /etc/sysctl.conf || error "Failed to apply sysctl settings."

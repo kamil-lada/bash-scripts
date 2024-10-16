@@ -1,9 +1,14 @@
 #!/bin/bash
 
-# Check if the correct number of arguments are provided
+############################
+#
+# Only mysql is working for now
+#
+############################
+
 if [ "$#" -ne 3 ]; then
     echo "Usage: $0 <db_engine> <address> <port>"
-    echo "db_engine should be one of: mysql, postgresql, mongodb"
+    echo "db_engine should be one of: mariadb, postgresql, mongodb"
     exit 1
 fi
 
@@ -13,7 +18,7 @@ ADDRESS=$2
 PORT=$3
 
 case "$DB_ENGINE" in
-    mysql)
+    mariadb)
         echo -n "Enter MariaDB root password: "
         read -s ROOT_PASSWORD
         echo
@@ -39,7 +44,7 @@ case "$DB_ENGINE" in
             exit 1
         fi
 
-        echo "MySQL database '$DB_NAME' and user '$NEW_USER' with full privileges created successfully."
+        echo "MariaDB database '$DB_NAME' and user '$NEW_USER' with full database privileges created successfully."
         ;;
 
     postgresql)
@@ -97,7 +102,7 @@ case "$DB_ENGINE" in
 
     *)
         echo "Unsupported DB engine: $DB_ENGINE"
-        echo "Supported DB engines: mysql, postgresql, mongodb"
+        echo "Supported DB engines: mariadb, postgresql, mongodb"
         exit 1
         ;;
 esac

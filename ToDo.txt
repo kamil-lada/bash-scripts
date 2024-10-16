@@ -1,0 +1,3 @@
+1. Check non-system services for gracefull shutdown timer option
+2. Verify formatDisk.sh if unattendent string is ok after change from dos to gpt partition type
+3. Zabbix server address as input from user

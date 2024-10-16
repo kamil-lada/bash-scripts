@@ -17,40 +17,71 @@ add_ssh_key() {
 
     # Check if the key is not empty
     if [ -n "$ssh_key" ]; then
-        echo "Adding SSH public key to authorized_keys:"
+        log "Adding SSH public key to authorized_keys:"
         echo "$ssh_key" >> /home/debian/.ssh/authorized_keys
     else
         echo "Empty input received. Stopping."
-        exit 0
     fi
 }
 
-log "Enter SSH public key(s) to add to authorized_keys (leave empty to finish):"
+############################################################# START
 
-mkdir -p /home/debian/.ssh || error "Failed to create /root/.ssh directory."
+# Configure 'debian' user for sudo without password
+username="debian"
+if id "debian" &>/dev/null; then
+    log "User 'debian' already exists. Skipping creation."
+    if sudo -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
+        log "User 'debian' already has sudo privileges. Skipping creation."
+    else
+        log "Granting sudo privileges to user debian"
+        echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
+        chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
+    fi
+else
+    log "Creating user 'debian' with sudo privileges..."
+    useradd -m -s /bin/bash debian || error "Failed to create user 'debian'."
+    echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
+    chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
+fi
+
+
+# Ensure .ssh directory exists
+mkdir -p /home/debian/.ssh && chown -R debian:debian /home/debian/.ssh
+
 # Loop to prompt user for SSH public keys
 while true; do
     read -p "SSH Public Key: " ssh_key_input
+
+    # Break the loop if input is empty
+    if [ -z "$ssh_key_input" ]; then
+        echo "No more keys to add. Exiting."
+        break
+    fi
 
     # Call function to add SSH key to authorized_keys
     add_ssh_key "$ssh_key_input"
 done
 
+log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys."
+
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
 # Install common packages
-log "Installing common packages..."
-apt install -y vim git curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump > /dev/null 2>&1 || error "Failed to install common packages."
-
-log "Installing Zabbix Agent 2"
-wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_7.0-1+debian12_all.deb && dpkg -i zabbix-release_7.0-1+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install Zabbix Agent 2."
-rm zabbix-release_7.0-1+debian12* > /dev/null 2>&1
-cat <<EOL | sudo tee /etc/zabbix/zabbix-agent2.conf
+log "Installing common packages, it can take up to 5 minutes..."
+wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+12_all.deb && dpkg -i zabbix-release_latest+12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
+apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
+rm zabbix-release_latest+12_all.deb > /dev/null 2>&1
+sudo mkdir -p /var/lib/zabbix
+sudo mkdir -p /run/zabbix
+sudo chown -R zabbix:zabbix /var/lib/zabbix
+sudo chown -R zabbix:zabbix /run/zabbix
+sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak > /dev/null 2>&1
+sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf > /dev/null 2>&1
+cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf  > /dev/null 2>&1
 BufferSend=5
 BufferSize=100
-EnablePersistentBuffer=0
+EnablePersistentBuffer=1
 HostMetadata=linux
 HostnameItem=system.hostname
 PersistentBufferFile=/var/lib/zabbix/zabbix_agent2.db
@@ -62,11 +93,12 @@ LogFile=/var/log/zabbix/zabbix_agent2.log
 LogFileSize=0
 PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
-Server=example.com
-ServerActive=example.com
+Server=10.0.10.10
+ServerActive=10.0.10.10
 EOL
 
-systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2 && log "Zabbix installed successfully" || error "Failed to install Zabbix"
+systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2
+
 # Set up aliases in /etc/bash.bashrc
 log "Setting up aliases in /etc/bash.bashrc..."
 
@@ -89,45 +121,17 @@ log "Disabling predictable network interface names..."
 ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules || error "Failed to disable predictable network interface names."
 update-initramfs -u || error "Failed to update initramfs."
 
-# Add public SSH key to root's authorized_keys
-log "Adding public SSH key to root's authorized_keys..."
-mkdir -p /root/.ssh || error "Failed to create /root/.ssh directory."
-mkdir -p /home/debian/.ssh || error "Failed to create /root/.ssh directory."
-echo "$public_ssh_key" > /root/.ssh/authorized_keys || error "Failed to write SSH key to /root/.ssh/authorized_keys."
-echo "$public_ssh_key" > /home/debian/.ssh/authorized_keys || error "Failed to write SSH key to /home/debian/.ssh/authorized_keys."
-chmod 600 /root/.ssh/authorized_keys || error "Failed to set permissions on /root/.ssh/authorized_keys."
-chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
-chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
-
 # Install qemu-guest-agent for Proxmox
 log "Installing qemu-guest-agent..."
 apt install -y qemu-guest-agent > /dev/null 2>&1 || error "Failed to install qemu-guest-agent."
 systemctl enable qemu-guest-agent > /dev/null 2>&1 || error "Failed to enable qemu-guest-agent."
 systemctl start qemu-guest-agent > /dev/null 2>&1 || error "Failed to start qemu-guest-agent."
 
-# Configure 'debian' user for sudo without password
-username="debian"
-if id "debian" &>/dev/null; then
-    log "User 'debian' already exists. Skipping creation."
-    if sudo -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
-        log "User 'debian' already has sudo privileges. Skipping creation."
-    else
-        log "Granting sudo privileges to user debian"
-        echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
-        chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
-    fi
-else
-    log "Creating user 'debian' with sudo privileges..."
-    useradd -m -s /bin/bash debian || error "Failed to create user 'debian'."
-    echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
-    chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
-fi
-
 # Path to the SSH configuration file
 SSH_CONFIG="/etc/ssh/sshd_config"
 
 # Backup the current SSH configuration file
-cp "$SSH_CONFIG" "${SSH_CONFIG}.bak"
+cp "$SSH_CONFIG" "${SSH_CONFIG}.bak.$(date +%F-%H-%M-%S)"
 
 # Function to add or replace a configuration setting
 add_or_replace_setting() {
@@ -166,7 +170,7 @@ chmod +x /home/debian/bash-scripts/*.sh
 log "Removing password for root user..."
 passwd -d root > /dev/null 2>&1 || error "Failed to remove password for root user."
 
-# Set swappiness to a lower value (e.g., 10)
+# Set swappiness to a lower value
 log "Setting swappiness to 10..."
 echo "vm.swappiness = 10" >> /etc/sysctl.conf || error "Failed to set swappiness in /etc/sysctl.conf."
 sysctl -p /etc/sysctl.conf || error "Failed to apply sysctl settings."
@@ -206,9 +210,49 @@ echo > ~/.bash_history || error "Failed to clear .bash_history."
 
 # Verify Java installation
 log "Verifying Java installation..."
-java -version || error "Java is not installed properly."
+java -version > /dev/null 2>&1 || error "Java is not installed properly."
 
-rm -- "$0"
+# Identify new disks (assumes /dev/sdb is the new disk)
+NEW_DISK="/dev/sdb"
+PARTITION="${NEW_DISK}1"
+MOUNT_POINT="/data"
+
+# Create a GPT partition table on the new disk
+log "Creating GPT partition table on $NEW_DISK..."
+parted $NEW_DISK --script mklabel gpt >/dev/null 2>&1 || error "Creating GPT partition table on $NEW_DISK failed."
+
+# Create a new partition that spans the entire disk
+log "Creating new partition on $NEW_DISK..."
+parted $NEW_DISK --script mkpart primary ext4 0% 100% >/dev/null 2>&1 || error "Creating new partition on $NEW_DISK failed."
+
+# Create a filesystem on the new disk (if not already formatted)
+log "Creating filesystem on $PARTITION..."
+mkfs.ext4 ${PARTITION}
+
+# Create the mount point
+log "Creating mount point $MOUNT_POINT..."
+mkdir -p $MOUNT_POINT || error "Creating mount point failed."
+
+# Get the UUID of the new partition
+UUID=$(blkid -s UUID -o value $PARTITION)
+
+# Add the new partition to /etc/fstab using UUID
+echo "Adding $PARTITION to /etc/fstab..."
+echo "UUID=$UUID    $MOUNT_POINT    ext4    defaults    0 2" >> /etc/fstab
+
+systemctl daemon-reload
+
+# Mount the new disk
+log "Mounting $PARTITION..."
+mount -a > /dev/null 2>&1 || error "Mounting $PARTITION... failed."
+
+# Reconfigure GRUB
+log "Updating GRUB configuration..."
+update-grub > /dev/null 2>&1 || error "Updating GRUB failed."
+
+# Install GRUB on the primary disk (assuming /dev/sda)
+log "Installing GRUB on /dev/sda..."
+grub-install /dev/sda >/dev/null 2>&1 || error "Installing GRUB failed."
 
 
 log "VM preparation completed successfully."

@@ -13,12 +13,17 @@ error() {
 
 ####################################################################  START
 
-# Prompt the user for a hostname
-read -p "Please enter the new hostname: " new_hostname
+read -p "Enter the new hostname: " new_hostname
 
-# Check if the input is not empty
 if [ -z "$new_hostname" ]; then
   error "Hostname cannot be empty. Exiting."
+  exit 1
+fi
+
+read -p "Enter host domain: " domain
+
+if [ -z "$domain" ]; then
+  error "Domain cannot be empty. Exiting."
   exit 1
 fi
 
@@ -27,9 +32,9 @@ MACHINE_ID_FILE="/etc/machine-id"
 
 # Check if the machine-id file exists and is not empty
 if [ -s "$MACHINE_ID_FILE" ]; then
-    echo "machine-id is set."
+    log "machine-id is set."
 else
-    echo "machine-id is empty or not set. Generating a new machine-id..."
+    log "machine-id is empty or not set. Generating a new machine-id..."
     
     # Generate a new machine-id
     sudo systemd-machine-id-setup > /dev/null 2>&1
@@ -38,13 +43,15 @@ else
     
     # Verify if the machine-id was successfully generated
     if [ -s "$MACHINE_ID_FILE" ]; then
-        echo "New machine-id has been generated successfully."
+        log "New machine-id has been generated successfully."
     else
-        echo "Failed to generate a new machine-id."
+        log "Failed to generate a new machine-id."
         exit 1
     fi
 fi
 
+sed -i "s/example\.com/zabbix-proxy-local.${domain}/g" /etc/zabbix/zabbix_agent2.conf
+echo "HostInterface=${new_hostname}.${domain}" | sudo tee -a /etc/zabbix/zabbix_agent2.conf
 
 # Display the new machine-id
 log "The new machine-id is: $(cat /etc/machine-id)"
@@ -108,12 +115,12 @@ interfaces=$(ip link show | grep -oP '\d+: [a-zA-Z0-9_.-]+:' | grep -v 'lo:' | a
 # Iterate over each interface and execute ifup
 for iface in $interfaces; do
     log "Bringing up interface: $iface"
-    sudo ifup $iface
+    sudo ifup $iface   > /dev/null 2>&1
 done
 
 log "All non-loopback network interfaces have been brought up."
 
-sudo dhclient -v
+sudo dhclient || error "Failed to obtain IP address."
 
 # Get the current hostname
 current_hostname=$(hostname)
@@ -129,3 +136,5 @@ sudo sed -i "s/$current_hostname/$new_hostname/g" /etc/hosts
 
 log "Hostname in /etc/hosts updated from $current_hostname to $new_hostname."
 
+log "New IP: "
+ip -br address

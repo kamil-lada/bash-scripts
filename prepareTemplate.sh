@@ -67,38 +67,41 @@ log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys.
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
+
 # Install common packages
 log "Installing common packages, it can take up to 5 minutes..."
 wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+12_all.deb && dpkg -i zabbix-release_latest+12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
+wget https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1 && dpkg -i graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1
+apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common graylog-sidecar dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
 rm zabbix-release_latest+12_all.deb > /dev/null 2>&1
-sudo mkdir -p /var/lib/zabbix
-sudo mkdir -p /run/zabbix
-sudo chown -R zabbix:zabbix /var/lib/zabbix
-sudo chown -R zabbix:zabbix /run/zabbix
+rm graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1
+sudo graylog-sidecar -service install > /dev/null 2>&1
+sudo mkdir -p /var/lib/zabbix > /dev/null 2>&1 && sudo touch /var/lib/zabbix/zabbix_agent2.db > /dev/null 2>&1 && sudo chown -R zabbix:zabbix /var/lib/zabbix
 sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak > /dev/null 2>&1
-sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf > /dev/null 2>&1
+sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf.bak > /dev/null 2>&1
 cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf  > /dev/null 2>&1
 BufferSend=5
 BufferSize=100
 EnablePersistentBuffer=1
 HostMetadata=linux
-HostnameItem=system.hostname
+#HostnameItem=system.hostname
 PersistentBufferFile=/var/lib/zabbix/zabbix_agent2.db
 PersistentBufferPeriod=30d
 ControlSocket=/run/zabbix/agent.sock
 Include=/etc/zabbix/zabbix_agent2.d/*.conf
 Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
 LogFile=/var/log/zabbix/zabbix_agent2.log
-LogFileSize=0
+LogFileSize=10
 PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
-Server=10.0.10.10
-ServerActive=10.0.10.10
+Timeout=10
+DebugLevel=3
+Server=example.com
+ServerActive=example.com
 EOL
 
-systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2
-
+systemctl stop zabbix-agent2 && systemctl enable zabbix-agent2
+systemctl stop graylog-sidecar && systemctl enable graylog-sidecar
 # Set up aliases in /etc/bash.bashrc
 log "Setting up aliases in /etc/bash.bashrc..."
 

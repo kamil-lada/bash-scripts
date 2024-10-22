@@ -1,0 +1,12 @@
+{
+    "plugins": [
+        {
+            "type": "add",
+            "pluginName": "fleet.shell"
+        },
+        {
+            "type": "add",
+            "pluginName": "fleet.git.frontend"
+        }
+    ]
+}

@@ -6,6 +6,10 @@ log_error() {
 
 read -p "Create MongoDB admin username: " admin_user
 read -s -p "Create MongoDB admin password: " admin_password
+if [[ "$admin_password" = *"@"* && "$admin_password" = *":"* ]]; then
+    echo "Invalid password, avoid using '@' and ':'."
+    exit 1
+fi
 echo
 
 read -p "Do you want to prepare host for replication? (y/N): " REPLICATION_CHOICE
@@ -16,6 +20,10 @@ zbx_choice=${zbx_choice,,} # Convert to lowercase
 
 if [[ "$zbx_choice" == "y" ]]; then
     read -sp "Please create password for Zabbix monitoring user 'zbx_monitor': " zbx_password
+    if [[ "$zbx_password" = *"@"* && "$zbx_password" = *":"* ]]; then
+        echo "Invalid password, avoid using '@' and ':'."
+        exit 1
+    fi
     echo
 fi
 

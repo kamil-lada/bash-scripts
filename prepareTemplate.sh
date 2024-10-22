@@ -73,7 +73,7 @@ read -p "Enter zabbix proxy/server address" zabbix_address
 
 # Install common packages
 log "Installing common packages, it can take up to 5 minutes..."
-wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+12_all.deb && dpkg -i zabbix-release_latest+12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
+wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian12_all.deb && dpkg -i zabbix-release_latest+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
 wget https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1 && dpkg -i graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1
 apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common graylog-sidecar dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
 rm zabbix-release_latest+12_all.deb > /dev/null 2>&1

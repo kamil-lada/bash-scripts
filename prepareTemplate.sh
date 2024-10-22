@@ -67,6 +67,8 @@ log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys.
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
+echo "Enter zabbix proxy/server address"
+read -p zabbix_address
 
 # Install common packages
 log "Installing common packages, it can take up to 5 minutes..."
@@ -96,8 +98,8 @@ PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
 Timeout=10
 DebugLevel=3
-Server=example.com
-ServerActive=example.com
+Server=${zabbix_address}
+ServerActive=${zabbix_address}
 EOL
 
 systemctl stop zabbix-agent2 && systemctl enable zabbix-agent2

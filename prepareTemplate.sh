@@ -28,9 +28,11 @@ add_ssh_key() {
 
 # Configure 'debian' user for sudo without password
 username="debian"
+mkdir -p /etc/sudoers.d
+touch /etc/sudoers.d/debian
 if id "debian" &>/dev/null; then
     log "User 'debian' already exists. Skipping creation."
-    if sudo -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
+    if -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
         log "User 'debian' already has sudo privileges. Skipping creation."
     else
         log "Granting sudo privileges to user debian"
@@ -49,6 +51,7 @@ fi
 mkdir -p /home/debian/.ssh && chown -R debian:debian /home/debian/.ssh
 
 # Loop to prompt user for SSH public keys
+log "Enter public keys from all users, press enter when finished..."
 while true; do
     read -p "SSH Public Key: " ssh_key_input
 
@@ -67,34 +70,38 @@ log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys.
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
+read -p "Enter zabbix proxy/server address: " zabbix_address
+
 # Install common packages
 log "Installing common packages, it can take up to 5 minutes..."
-wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+12_all.deb && dpkg -i zabbix-release_latest+12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
-rm zabbix-release_latest+12_all.deb > /dev/null 2>&1
-sudo mkdir -p /var/lib/zabbix
-sudo mkdir -p /run/zabbix
-sudo chown -R zabbix:zabbix /var/lib/zabbix
-sudo chown -R zabbix:zabbix /run/zabbix
-sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak > /dev/null 2>&1
-sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf > /dev/null 2>&1
+wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian12_all.deb && dpkg -i zabbix-release_latest+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
+wget -q https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1 && dpkg -i graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1
+apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common graylog-sidecar dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
+rm zabbix-release_latest+debian12_all.deb > /dev/null 2>&1 || error "Failed to rm zabbix-release_latest+debian12_all.deb"
+rm graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1 || error "Failed to rm graylog-sidecar-repository_1-5_all.deb"
+sudo graylog-sidecar -service install > /dev/null 2>&1 || error "Failed to sudo graylog-sidecar"
+sudo mkdir -p /var/lib/zabbix > /dev/null 2>&1 && sudo touch /var/lib/zabbix/zabbix_agent2.db > /dev/null 2>&1 && sudo chown -R zabbix:zabbix /var/lib/zabbix  > /dev/null 2>&1 || error "Failed to sudo mkdir -p /var/lib/zabbix"
+sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak > /dev/null 2>&1 || error "Failed to sudo mv /etc/zabbix/zabbix_agent2.conf"
 cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf  > /dev/null 2>&1
 BufferSend=5
 BufferSize=100
 EnablePersistentBuffer=1
 HostMetadata=linux
-HostnameItem=system.hostname
+#HostnameItem=system.hostname
 PersistentBufferFile=/var/lib/zabbix/zabbix_agent2.db
 PersistentBufferPeriod=30d
 ControlSocket=/run/zabbix/agent.sock
 Include=/etc/zabbix/zabbix_agent2.d/*.conf
 Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
 LogFile=/var/log/zabbix/zabbix_agent2.log
-LogFileSize=0
+LogFileSize=10
 PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
-Server=10.0.10.10
-ServerActive=10.0.10.10
+Timeout=10
+DebugLevel=3
+Server=${zabbix_address}
+ServerActive=${zabbix_address}
+
 EOL
 
 systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2

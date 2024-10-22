@@ -65,8 +65,8 @@ LogFileSize=0
 PidFile=/var/run/zabbix/zabbix_agent2.pid
 
 # Server Settings
-Server=zabbix-proxy-local.babum.ovh
-ServerActive=zabbix-proxy-local.babum.ovh
+Server=example.com
+ServerActive=example.com
 
 # Additional Common Settings
 Timeout=3

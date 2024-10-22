@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "Installing Graylog Sidecar..."
+
 GRAYLOG_ADDRESS=""
 GRAYLOG_PORT="9000"
 GRAYLOG_TOKEN=""
@@ -40,5 +42,9 @@ tags:
   - ${GRAYLOG_TAG}
 EOF
 
+systemctl restart graylog-sidecar
+
+
 rm graylog-sidecar-repository_1-5_all.deb
+
 echo "Installation and configuration complete."

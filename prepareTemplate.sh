@@ -30,11 +30,11 @@ add_ssh_key() {
 username="debian"
 if id "debian" &>/dev/null; then
     log "User 'debian' already exists. Skipping creation."
-    if sudo -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
+    if -l -U "$username" 2>/dev/null | grep -q "may run the following commands"; then
         log "User 'debian' already has sudo privileges. Skipping creation."
     else
         log "Granting sudo privileges to user debian"
-        echo "debian ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
+        echo "debian ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/debian || error "Failed to grant sudo privileges to 'debian'."
         chmod 440 /etc/sudoers.d/debian || error "Failed to set permissions on /etc/sudoers.d/debian."
     fi
 else

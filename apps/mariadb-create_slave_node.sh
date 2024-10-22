@@ -224,7 +224,7 @@ echo "Running 'mysql_secure_installation' in unattended mode..."
 
 # Create Zabbix monitoring user if requested
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    mysql -u root -p$ROOT_PASSWORD <<EOF
+    mysql -u root -p"$MARIADB_ROOT_PASSWORD" <<EOF
 CREATE USER 'zbx_monitor'@'%' IDENTIFIED BY '${ZABBIX_PASSWORD}';
 GRANT REPLICATION CLIENT, PROCESS, SLAVE MONITOR, SHOW DATABASES, SHOW VIEW, SELECT, REPLICATION SLAVE, BINLOG MONITOR ON *.* TO 'zbx_monitor'@'%';
 FLUSH PRIVILEGES;
@@ -240,7 +240,7 @@ if [ -z "$GTID" ]; then
 fi
 
 # Set up replication
-mysql -u root -p$ROOT_PASSWORD <<EOF
+mysql -u root -p"$MARIADB_ROOT_PASSWORD" <<EOF
 STOP SLAVE;
 SET GLOBAL gtid_slave_pos = '$GTID';
 CHANGE MASTER TO
@@ -258,6 +258,6 @@ echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 # Just in case
 sleep 3
 # Verify replication status
-mysql -u root -p$ROOT_PASSWORD -e "SHOW SLAVE STATUS \G"
+mysql -u root -p"$MARIADB_ROOT_PASSWORD" -e "SHOW SLAVE STATUS \G"
 
 echo "MariaDB slave setup complete."

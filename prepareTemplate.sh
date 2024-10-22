@@ -104,8 +104,8 @@ ServerActive=${zabbix_address}
 
 EOL
 
-systemctl stop zabbix-agent2 && systemctl enable zabbix-agent2
-systemctl stop graylog-sidecar && systemctl enable graylog-sidecar
+systemctl restart zabbix-agent2 && systemctl enable zabbix-agent2
+
 # Set up aliases in /etc/bash.bashrc
 log "Setting up aliases in /etc/bash.bashrc..."
 

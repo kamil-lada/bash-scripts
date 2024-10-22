@@ -51,6 +51,7 @@ fi
 mkdir -p /home/debian/.ssh && chown -R debian:debian /home/debian/.ssh
 
 # Loop to prompt user for SSH public keys
+log "Enter public keys from all users, press enter when finished..."
 while true; do
     read -p "SSH Public Key: " ssh_key_input
 
@@ -69,20 +70,20 @@ log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys.
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
-read -p "Enter zabbix proxy/server address" zabbix_address
+read -p "Enter zabbix proxy/server address: " zabbix_address
 
 # Install common packages
 log "Installing common packages, it can take up to 5 minutes..."
-wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian12_all.deb && dpkg -i zabbix-release_latest+debian12_all.deb > /dev/null 2>&1 || error "Failed to download Zabbix Agent packages."
-wget https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1 && dpkg -i graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1
-apt update > /dev/null 2>&1 && apt install -y vim git gpg jq nfs-common software-properties-common graylog-sidecar dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-* > /dev/null 2>&1 || error "Failed to install common packages."
-rm zabbix-release_latest+12_all.deb > /dev/null 2>&1
-rm graylog-sidecar-repository_1-5_all.deb > /dev/null 2>&1
-sudo graylog-sidecar -service install > /dev/null 2>&1
-sudo mkdir -p /var/lib/zabbix > /dev/null 2>&1 && sudo touch /var/lib/zabbix/zabbix_agent2.db > /dev/null 2>&1 && sudo chown -R zabbix:zabbix /var/lib/zabbix
-sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak > /dev/null 2>&1
-sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf.bak > /dev/null 2>&1
-cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf  > /dev/null 2>&1
+wget -q https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest+debian12_all.deb && dpkg -i zabbix-release_latest+debian12_all.deb 
+wget -q https://packages.graylog2.org/repo/packages/graylog-sidecar-repository_1-5_all.deb && dpkg -i graylog-sidecar-repository_1-5_all.deb
+apt update && apt install -y vim git gpg jq nfs-common software-properties-common graylog-sidecar dirmngr curl wget net-tools htop sudo openjdk-17-jdk parted tcpdump zabbix-agent2 zabbix-agent2-plugin-*
+rm zabbix-release_latest+12_all.deb 
+rm graylog-sidecar-repository_1-5_all.deb
+sudo graylog-sidecar -service install
+sudo mkdir -p /var/lib/zabbix && sudo touch /var/lib/zabbix/zabbix_agent2.db && sudo chown -R zabbix:zabbix /var/lib/zabbix
+sudo mv /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agent2.conf.bak 
+sudo mv /etc/zabbix/zabbix-agent2.conf /etc/zabbix/zabbix-agent2.conf.bak 
+cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf 
 BufferSend=5
 BufferSize=100
 EnablePersistentBuffer=1

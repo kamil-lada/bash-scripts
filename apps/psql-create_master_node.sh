@@ -1,7 +1,17 @@
 #!/bin/bash
 
-# Prompt for PostgreSQL version
-read -p "Enter PostgreSQL version (e.g., 14): " psql_version
+echo "WARNING: This script will purge any existing psql packages and config. "
+read -p "Press [Enter] to continue or [Ctrl+C] to cancel."
+echo "Updating package lists..."
+
+sudo apt install -y postgresql-common > /dev/null 2>&1
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -yp > /dev/null 2>&1
+
+# Update package lists
+sudo apt update > /dev/null 2>&1
+
+# Prompt for PostgreSQL version and install
+read -p "Enter PostgreSQL version to install (e.g., 16): " psql_version
 
 # Prompt for custom data path, with default suggestion
 read -p "Enter custom data path (suggested: /data): " data_path
@@ -17,17 +27,20 @@ if [[ "$zabbix_choice" == "y" ]]; then
     echo
 fi
 
-# Update and install PostgreSQL
-sudo apt-get update
-sudo apt-get install -y postgresql-$psql_version postgresql-contrib
+echo "Installing PostgreSQL version $psql_version..."
+sudo apt install -y postgresql-$psql_version postgresql-contrib > /dev/null 2>&1
 
+# Stop PostgreSQL service
+sudo systemctl stop postgresql
+sudo rm -rf "$data_path/"
+sudo mkdir -p "$data_path/main"  > /dev/null 2>&1
 # Move the data directory if a custom path is provided
 if [[ -n "$data_path" && "$data_path" != "/var/lib/postgresql/$psql_version/main" ]]; then
-    sudo systemctl stop postgresql
     sudo mv /var/lib/postgresql/$psql_version/main "$data_path/main"
-    sudo ln -s "$data_path/main" /var/lib/postgresql/$psql_version/main
     sudo chown -R postgres:postgres "$data_path/main"
-    sudo systemctl start postgresql
+
+    # Create symbolic link for compatibility
+    sudo ln -s "$data_path/main" /var/lib/postgresql/$psql_version/main
 fi
 
 # Perform initial PostgreSQL configuration (reliability & consistency settings)
@@ -41,6 +54,8 @@ wal_keep_size = 16MB
 archive_mode = on
 archive_command = 'cp %p /var/lib/postgresql/archive/%f'
 EOF"
+
+sudo systemctl restart postgresql
 
 # Replication setup if user chooses to configure it
 if [[ "$replication_choice" == "y" ]]; then
@@ -58,10 +73,8 @@ if [[ "$zabbix_choice" == "y" ]]; then
     sudo -u postgres psql -c "GRANT SELECT ON pg_stat_activity, pg_stat_replication TO zbx_monitoring;"
 fi
 
-# Restart PostgreSQL to apply changes
-sudo systemctl restart postgresql
-
 echo "PostgreSQL installation and configuration complete."
 if [[ "$replication_choice" == "y" ]]; then
     echo "Replication has been configured."
 fi
+

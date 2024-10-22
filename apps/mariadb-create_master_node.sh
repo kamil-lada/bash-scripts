@@ -215,12 +215,12 @@ echo "$SECURE_MYSQL" >/dev/null 2>&1
 echo "MySQL secure installation automated successfully."
 
 # Configure MariaDB users
-mysql -u root -p$ROOT_PASSWORD <<EOF
+mysql -u root -p"$ROOT_PASSWORD" <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
 EOF
 
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
-    mysql -u root -p$ROOT_PASSWORD <<EOF
+    mysql -u root -p"$ROOT_PASSWORD" <<EOF
 CREATE USER '${REPLICATION_USER}'@'%' IDENTIFIED BY '${REPLICATION_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '${REPLICATION_USER}'@'%';
 FLUSH PRIVILEGES;
@@ -229,7 +229,7 @@ EOF
 fi
 
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then
-    mysql -u root -p$ROOT_PASSWORD <<EOF
+    mysql -u root -p"$ROOT_PASSWORD" <<EOF
 CREATE USER 'zbx_monitor'@'%' IDENTIFIED BY '${ZABBIX_PASSWORD}';
 GRANT REPLICATION CLIENT, PROCESS, SLAVE MONITOR, SHOW DATABASES, SHOW VIEW, SELECT, REPLICATION SLAVE, BINLOG MONITOR ON *.* TO 'zbx_monitor'@'%';
 FLUSH PRIVILEGES;
@@ -243,7 +243,7 @@ echo "MariaDB has been restarted to apply changes."
 echo "Check config in /etc/mysql/mariadb.conf.d/50-server.cnf"
 
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
-    gtid=`mysql -u root -p$ROOT_PASSWORD -s -N -e "SELECT @@gtid_current_pos;"`
+    gtid=`mysql -u root -p"$ROOT_PASSWORD" -s -N -e "SELECT @@gtid_current_pos;"`
     echo "GTID value for replica setup: ${gtid}"
 fi
 

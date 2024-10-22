@@ -69,8 +69,7 @@ log "All provided SSH keys have been added to /home/debian/.ssh/authorized_keys.
 chown debian:debian /home/debian/.ssh/authorized_keys || error "Failed to set ownership on /home/debian/.ssh/authorized_keys."
 chmod 600 /home/debian/.ssh/authorized_keys || error "Failed to set permissions on /home/debian/.ssh/authorized_keys."
 
-echo "Enter zabbix proxy/server address"
-read -p zabbix_address
+read -p "Enter zabbix proxy/server address" zabbix_address
 
 # Install common packages
 log "Installing common packages, it can take up to 5 minutes..."

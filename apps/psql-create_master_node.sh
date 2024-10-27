@@ -4,18 +4,24 @@ echo "WARNING: This script will purge any existing psql packages and config. "
 read -p "Press [Enter] to continue or [Ctrl+C] to cancel."
 echo "Updating package lists..."
 
-sudo apt install -y postgresql-common > /dev/null 2>&1
-sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -yp > /dev/null 2>&1
+sudo apt install -y gpg
+curl -fsSl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | sudo tee /usr/share/keyrings/postgresql.gpg > /dev/null
+echo deb [arch=amd64,arm64,ppc64el signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main | sudo tee /etc/apt/sources.list.d/pgdg.list
 
-# Update package lists
-sudo apt update > /dev/null 2>&1
+sudo apt update
+sudo apt install -y postgresql-common
 
 # Prompt for PostgreSQL version and install
 read -p "Enter PostgreSQL version to install (e.g., 15, 16, 17): " psql_version
 
 # Prompt for custom data path, with default suggestion
-read -p "Enter custom data path (suggested: /data/psql): " data_path
-data_path=${data_path:-/var/lib/postgresql/$psql_version/main}
+data_path=/var/lib
+custom_path=false
+read -p "Enter custom data path or press [Enter] to keep default path (default: /var/lib, opt: /data): " data_path
+if [ ! -z "$data_path" ]; then
+    data_path=$data_path
+    custom_path=true
+fi
 
 # Prompt if user wants to configure replication
 read -p "Do you want to configure replication? (y/n): " replication_choice
@@ -26,12 +32,14 @@ if [[ "$zabbix_choice" == "y" ]]; then
     read -sp "Enter the password for zbx_monitoring: " zbx_password
     echo
 fi
+sudo sed -i s/data_directory/#data_directory/g /etc/postgresql-common/createcluster.conf
+echo "data_directory = '$data_path/postgresql/%v/%c'" | sudo tee -a /etc/postgresql-common/createcluster.conf
 
 echo "Installing PostgreSQL version $psql_version..."
-sudo apt install -y postgresql-$psql_version postgresql-contrib > /dev/null 2>&1
+sudo apt install -y postgresql-$psql_version
 
 # Perform initial PostgreSQL configuration (reliability & consistency settings)
-cat <<EOF | sudo tee /etc/postgresql/$psql_version/main/postgresql.conf > /dev/null 2>&1
+cat <<EOF | sudo tee /etc/postgresql/$psql_version/main/postgresql.conf
 #Safety options
 synchronous_commit = on
 full_page_writes = on
@@ -68,33 +76,34 @@ timezone = 'Europe/Warsaw'
 unix_socket_directories = '/var/run/postgresql'
 EOF
 
+sudo systemctl stop postgresql
+cd /
 # Move the data directory if a custom path is provided
-if [[ -n "$data_path" && "$data_path" != "/var/lib/postgresql/$psql_version/main" ]]; then
+if [[ $custom_path ]]; then
     # Stop PostgreSQL service
-    sudo systemctl stop postgresql
-    sudo mkdir -p "$data_path"/archive  > /dev/null 2>&1
-    sudo chown postgres:postgres "$data_path" > /dev/null 2>&1
-    sudo mv /var/lib/postgresql/$psql_version/main "$data_path"
+    sudo cp -r /var/lib/postgresql "$data_path"
+    sudo mkdir -p "$data_path"/postgresql/archive
     sudo chown -R postgres:postgres "$data_path"
-    echo "archive_command = 'cp %p ${data_path}/archive/%f'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf > /dev/null 2>&1
-    echo "data_directory = '${data_path}/${psql_version}/main'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf > /dev/null 2>&1
+    sudo chmod -R 750 "$data_path"
+    echo "archive_command = 'cp %p ${data_path}/postgresql/archive/%f'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
+    echo "data_directory = '${data_path}/postgresql/${psql_version}/main'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
+    sed -i "/^\[Service\]/a\Environment=PGDATA=${data_path}/postgresql/${psql_version}" /lib/systemd/system/postgresql.service
+    sed -i "/^\[Service\]/a\Environment=PGHOST=localhost" /lib/systemd/system/postgresql.service
 else
-    echo "archive_command = 'cp %p /var/lib/postgresql/archive/%f'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf > /dev/null 2>&1
-    echo "data_directory = '/var/lib/postgresql/${psql_version}/main'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf > /dev/null 2>&1
+    echo "archive_command = 'cp %p /var/lib/postgresql/archive/%f'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
+    echo "data_directory = '/var/lib/postgresql/${psql_version}/main'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
+    sed -i "/^\[Service\]/a\Environment=PGHOST=localhost" /lib/systemd/system/postgresql.service
 fi
-
-
-
+systemctl daemon-reload
 sudo systemctl restart postgresql
 
 # Replication setup if user chooses to configure it
 if [[ "$replication_choice" == "y" ]]; then
-    read -p "Enter the replication username: " replication_user
     read -sp "Enter the replication password: " replication_password
-    echo
-
+    replication_user='replica_user'
+    sudo touch "/etc/postgresql/$psql_version/main/pg_hba.conf"
     sudo -u postgres psql -c "CREATE ROLE $replication_user WITH REPLICATION LOGIN PASSWORD '$replication_password';"
-    sudo bash -c "echo 'host replication $replication_user 0.0.0.0/0 md5' >> /etc/postgresql/$psql_version/main/pg_hba.conf"
+    echo "host replication $replication_user 0.0.0.0/0 md5" | sudo tee -a /etc/postgresql/$psql_version/main/pg_hba.conf
 fi
 
 # Zabbix monitoring user creation
@@ -105,6 +114,6 @@ fi
 
 echo "PostgreSQL installation and configuration complete."
 if [[ "$replication_choice" == "y" ]]; then
-    echo "Replication has been configured."
+    echo "Replication has been configured. Username for replication is: $replication_user"
 fi
 

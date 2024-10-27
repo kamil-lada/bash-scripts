@@ -48,26 +48,26 @@ synchronous_commit = on
 full_page_writes = on
 
 #Native options
-cluster_name = '${psql_version}/main'			# added to process titles if nonempty
+cluster_name = '${psql_version}/main'
 datestyle = 'iso, mdy'
 default_text_search_config = 'pg_catalog.english'
 dynamic_shared_memory_type = posix	# the default is usually the first option
-external_pid_file = '/var/run/postgresql/${psql_version}-main.pid'			# write an extra PID file
-hba_file = '/etc/postgresql/${psql_version}/main/pg_hba.conf'	# host-based authentication file
-ident_file = '/etc/postgresql/${psql_version}/main/pg_ident.conf'	# ident configuration file
-include_dir = 'conf.d'			# include files ending in '.conf' from
-lc_messages = 'en_US.UTF-8'		# locale for system error message
-lc_monetary = 'en_US.UTF-8'		# locale for monetary formatting
-lc_numeric = 'en_US.UTF-8'		# locale for number formatting
-lc_time = 'en_US.UTF-8'			# locale for time formatting
+external_pid_file = '/var/run/postgresql/${psql_version}-main.pid'
+hba_file = '/etc/postgresql/${psql_version}/main/pg_hba.conf'
+ident_file = '/etc/postgresql/${psql_version}/main/pg_ident.conf'
+include_dir = 'conf.d'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
 listen_addresses = '*'
 log_line_prefix = '%m [%p] %q%u@%d '
 log_timezone = 'Europe/Warsaw'
-max_connections = 100			# (change requires restart)
+max_connections = 100
 max_wal_size = 1GB
 min_wal_size = 80MB
-port = 5433				# (change requires restart)
-shared_buffers = 128MB			# min 128kB
+port = 5433
+shared_buffers = 128MB
 ssl = on
 ssl_cert_file = '/etc/ssl/certs/ssl-cert-snakeoil.pem'
 ssl_key_file = '/etc/ssl/private/ssl-cert-snakeoil.key'
@@ -99,9 +99,11 @@ else
     data_path_full="/var/lib/postgresql/${psql_version}/main"
 fi
 
+# Reload service file
 systemctl daemon-reload
 sudo systemctl restart postgresql
 
+#Setup replication using password from "$data_path/postgresql/.pgpass"
 sudo pg_basebackup -h "$primary_ip" -U replica_user -X stream -C -S replica_1 -v -R -D "$data_path_full"
 
 # Zabbix monitoring user creation
@@ -111,3 +113,5 @@ if [[ "$zabbix_choice" == "y" ]]; then
 fi
 
 echo "PostgreSQL installation and configuration complete."
+echo "Check config file: /etc/postgresql/$psql_version/main/postgresql.conf"
+echo "Check service file /lib/systemd/system/postgresql.service"

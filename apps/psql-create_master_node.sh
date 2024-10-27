@@ -116,4 +116,7 @@ echo "PostgreSQL installation and configuration complete."
 if [[ "$replication_choice" == "y" ]]; then
     echo "Replication has been configured. Username for replication is: $replication_user"
 fi
+echo "Check config file: /etc/postgresql/$psql_version/main/postgresql.conf"
+echo "Check replication file: /etc/postgresql/$psql_version/main/pg_hba.conf"
+echo "Check service file: /lib/systemd/system/postgresql.service"
 

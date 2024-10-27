@@ -77,7 +77,7 @@ unix_socket_directories = '/var/run/postgresql'
 EOF
 
 sudo systemctl stop postgresql
-cd /
+cd "$data_path/postgresql"
 # Move the data directory if a custom path is provided
 if [[ $custom_path ]]; then
     # Stop PostgreSQL service

@@ -77,12 +77,14 @@ EOF
 
 sudo systemctl stop postgresql
 cd "$data_path/postgresql"
+sudo rm -rf "$data_path/postgresql/$psql_version/main"
 echo "$primary_ip:5433:test:replica_user:$replication_password" | sudo tee "$data_path/postgresql/.pgpass"
 # Move the data directory if a custom path is provided
 if [[ $custom_path ]]; then
     # Stop PostgreSQL service
     sudo cp -r /var/lib/postgresql "$data_path"
     sudo mkdir -p "$data_path"/postgresql/archive
+    sudo mkdir -p "$data_path/postgresql/$psql_version/main"
     sudo chown -R postgres:postgres "$data_path"
     sudo chmod -R 750 "$data_path"
     echo "archive_command = 'cp %p ${data_path}/postgresql/archive/%f'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
@@ -104,6 +106,7 @@ systemctl daemon-reload
 sudo systemctl restart postgresql
 
 #Setup replication using password from "$data_path/postgresql/.pgpass"
+sudo rm -rf "$data_path_full/*"
 sudo pg_basebackup -h "$primary_ip" -U replica_user -X stream -C -S replica_1 -v -R -D "$data_path_full"
 
 # Zabbix monitoring user creation

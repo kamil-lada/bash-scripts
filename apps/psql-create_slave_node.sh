@@ -78,7 +78,9 @@ EOF
 sudo systemctl stop postgresql
 cd "$data_path/postgresql"
 sudo rm -rf "$data_path/postgresql/$psql_version/main"
-echo "$primary_ip:5433:test:replica_user:$replication_password" | sudo tee "$data_path/postgresql/.pgpass"
+echo "$primary_ip:5433:*:replica_user:$replication_password" | sudo tee "$data_path/postgresql/.pgpass"
+sudo chown postgres "$data_path/postgresql/.pgpass"
+
 # Move the data directory if a custom path is provided
 if [[ $custom_path ]]; then
     # Stop PostgreSQL service
@@ -91,13 +93,11 @@ if [[ $custom_path ]]; then
     echo "data_directory = '${data_path}/postgresql/${psql_version}/main'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
     sed -i "/^\[Service\]/a\Environment=PGDATA=${data_path}/postgresql/${psql_version}" /lib/systemd/system/postgresql.service
     sed -i "/^\[Service\]/a\Environment=PGHOST=localhost" /lib/systemd/system/postgresql.service
-    sed -i "/^\[Service\]/a\Environment=PG_PASSFILE=$data_path/postgresql/.pgpass" /lib/systemd/system/postgresql.service
     data_path_full="${data_path}/postgresql/${psql_version}/main"
 else
     echo "archive_command = 'cp %p /var/lib/postgresql/archive/%f'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
     echo "data_directory = '/var/lib/postgresql/${psql_version}/main'" | sudo tee -a /etc/postgresql/$psql_version/main/postgresql.conf
     sed -i "/^\[Service\]/a\Environment=PGHOST=localhost" /lib/systemd/system/postgresql.service
-    sed -i "/^\[Service\]/a\Environment=PG_PASSFILE=$data_path/postgresql/.pgpass" /lib/systemd/system/postgresql.service
     data_path_full="/var/lib/postgresql/${psql_version}/main"
 fi
 
@@ -106,8 +106,8 @@ systemctl daemon-reload
 sudo systemctl restart postgresql
 
 #Setup replication using password from "$data_path/postgresql/.pgpass"
-sudo rm -rf "$data_path_full/*"
-sudo pg_basebackup -h "$primary_ip" -U replica_user -X stream -C -S replica_1 -v -R -D "$data_path_full"
+sudo chmod 600 "$data_path/postgresql/.pgpass"
+sudo  PGPASSFILE=/data/postgresql/.pgpass -u postgres pg_basebackup -h "$primary_ip" -U replica_user -X stream -C -S replica_1 -v -R -D "$data_path_full"
 
 # Zabbix monitoring user creation
 if [[ "$zabbix_choice" == "y" ]]; then

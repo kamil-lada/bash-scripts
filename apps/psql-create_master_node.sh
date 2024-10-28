@@ -103,7 +103,7 @@ if [[ "$replication_choice" == "y" ]]; then
     replication_user='replica_user'
     sudo touch "/etc/postgresql/$psql_version/main/pg_hba.conf"
     sudo -u postgres psql -c "CREATE ROLE $replication_user WITH REPLICATION LOGIN PASSWORD '$replication_password';"
-    echo "host replication $replication_user 0.0.0.0/0 md5" | sudo tee -a /etc/postgresql/$psql_version/main/pg_hba.conf
+    echo "host replication $replication_user samenet md5" | sudo tee -a /etc/postgresql/$psql_version/main/pg_hba.conf
 fi
 
 # Zabbix monitoring user creation

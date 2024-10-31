@@ -76,6 +76,7 @@ unix_socket_directories = '/var/run/postgresql'
 EOF
 
 sudo systemctl stop postgresql
+mkdir -p "$data_path/postgresql/$psql_version/main"  > /dev/null 2>&1
 cd "$data_path/postgresql"
 sudo rm -rf "$data_path/postgresql/$psql_version/main"
 echo "$primary_ip:5433:*:replica_user:$replication_password" | sudo tee "$data_path/postgresql/.pgpass"

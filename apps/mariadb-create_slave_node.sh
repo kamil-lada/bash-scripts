@@ -110,8 +110,8 @@ cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 pid-file = /run/mysqld/mysqld.pid
 basedir = /usr
 bind-address = 0.0.0.0
-expire_logs_days = 10
-max_binlog_size = 500M
+#expire_logs_days = 10
+#max_binlog_size = 500M
 character-set-server = utf8mb4
 collation-server = utf8mb4_general_ci
 datadir = $DATA_DIR
@@ -130,13 +130,13 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 2
-log_bin = $DATA_DIR/mariadb-bin
-binlog_format = ROW
-binlog_checksum = CRC32
+#log_bin = $DATA_DIR/mariadb-bin
+#binlog_format = ROW
+#binlog_checksum = CRC32
 gtid_strict_mode = ON
 slave_exec_mode = IDEMPOTENT
 slave_parallel_mode = none
-log_slave_updates = ON
+#log_slave_updates = ON
 relay_log = $DATA_DIR/relay-bin
 read_only = 1
 replicate-ignore-db = pma

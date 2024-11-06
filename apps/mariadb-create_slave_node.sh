@@ -110,7 +110,7 @@ cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 pid-file = /run/mysqld/mysqld.pid
 basedir = /usr
 bind-address = 0.0.0.0
-#expire_logs_days = 10
+#expire_logs_days = 3
 #max_binlog_size = 500M
 character-set-server = utf8mb4
 collation-server = utf8mb4_general_ci
@@ -130,15 +130,10 @@ sync_binlog = 1
 
 # Replication Settings
 server_id = 2
-#log_bin = $DATA_DIR/mariadb-bin
-#binlog_format = ROW
-#binlog_checksum = CRC32
 gtid_strict_mode = ON
+gtid_domain_id = 1
+slave_parallel_mode = conservative
 slave_exec_mode = IDEMPOTENT
-slave_parallel_mode = none
-#log_slave_updates = ON
-relay_log = $DATA_DIR/relay-bin
-read_only = 1
 replicate-ignore-db = pma
 replicate-ignore-db = sys
 replicate-ignore-db = performance_schema
@@ -187,6 +182,8 @@ fi
 sudo systemctl start mariadb
 
 # Automating mysql_secure_installation with Expect
+
+echo "Running 'mysql_secure_installation' in unattended mode..."
 SECURE_MYSQL=$(expect -c "
 
 set timeout 10
@@ -220,7 +217,6 @@ expect eof
 echo "$SECURE_MYSQL" >/dev/null 2>&1
 
 echo "MySQL secure installation automated successfully."
-echo "Running 'mysql_secure_installation' in unattended mode..."
 
 # Create Zabbix monitoring user if requested
 if [[ "$ZABBIX_CHOICE" == "y" ]]; then

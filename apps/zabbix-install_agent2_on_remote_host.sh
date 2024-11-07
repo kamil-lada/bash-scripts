@@ -1,76 +1,71 @@
 #!/bin/bash
 
-# Check if the correct number of arguments is provided
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <host_list_file> <private_key>"
+
+### Input pre-config
+HOST_LIST_FILE=""
+PRIVATE_KEY=""
+SSH_USER=""
+ZABBIX_ADDRESS=""
+
+
+echo "Warning: This script MUST be run from local host"
+echo "Warning: You will be asked for path to SSH private key"
+read -rp "Do you wish to continue? (y/N): " confirmation
+if [[ "$confirmation" != "y" ]]; then
+    echo "Operation canceled."
     exit 1
 fi
 
-# Assign parameters to variables
-HOST_LIST_FILE="$1"
-PRIVATE_KEY="$2"
-
-# Check if the host list file exists
-if [ ! -f "$HOST_LIST_FILE" ]; then
-    echo "Host list file not found: $HOST_LIST_FILE"
-    exit 1
+if [ -z "$HOST_LIST_FILE" ]; then
+    read -p "Enter path to host list file: " HOST_LIST_FILE
 fi
 
-# Check if the private key file exists
-if [ ! -f "$PRIVATE_KEY" ]; then
-    echo "Private key file not found: $PRIVATE_KEY"
-    exit 1
+if [ -z "$PRIVATE_KEY" ]; then
+    read -p "Enter path to private key: " PRIVATE_KEY
 fi
 
-# Loop through each host in the host list file
+if [ -z "$SSH_USER" ]; then
+    read -p "Enter ssh user common for all hosts: " SSH_USER
+fi
+
+if [ -z "$ZABBIX_ADDRESS" ]; then
+    read -p "Enter zabbix proxy / server address: " ZABBIX_ADDRESS
+fi
+
 while IFS= read -r HOST; do
     if [ -n "$HOST" ]; then
         echo "Connecting to $HOST..."
 
-        ssh -i "$PRIVATE_KEY" -o StrictHostKeyChecking=no zabbix@$HOST 'bash -s' <<'EOF'
+        ssh -i "$PRIVATE_KEY" -o StrictHostKeyChecking=no $SSH_USER@$HOST 'bash -s' <<'EOF'
 #!/bin/bash
 
 # Create required directory and set permissions
-sudo mkdir -p /var/lib/zabbix
+sudo mkdir -p /var/lib/zabbix > /dev/null 2>&1
 sudo chown -R zabbix:zabbix /var/lib/zabbix
 
 # Remove old config files
-sudo rm -rf /etc/zabbix/zabbix_agent2.conf
-sudo rm -rf /etc/zabbix/zabbix-agent2.conf
+sudo rm -rf /etc/zabbix/*.conf
 
 # Create new Zabbix Agent 2 config file
 cat <<EOL | sudo tee /etc/zabbix/zabbix_agent2.conf
-# General Parameters
 BufferSend=5
 BufferSize=100
 EnablePersistentBuffer=1
 HostMetadata=linux
 HostnameItem=system.hostname
-
-# Persistent Buffer
 PersistentBufferFile=/var/lib/zabbix/zabbix_agent2.db
 PersistentBufferPeriod=30d
-
-# Socket Settings
 ControlSocket=/run/zabbix/agent.sock
-PluginSocket=/run/zabbix/agent.plugin.sock
-
-# Include Additional Config Files
 Include=/etc/zabbix/zabbix_agent2.d/*.conf
 Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf
-
-# Logging
 LogFile=/var/log/zabbix/zabbix_agent2.log
-LogFileSize=0
+LogFileSize=10
 PidFile=/var/run/zabbix/zabbix_agent2.pid
-
-# Server Settings
-Server=example.com
-ServerActive=example.com
-
-# Additional Common Settings
-Timeout=3
+PluginSocket=/run/zabbix/agent.plugin.sock
+Timeout=10
 DebugLevel=3
+Server=$ZABBIX_ADDRESS
+ServerActive=$ZABBIX_ADDRESS
 EOL
 
 sudo systemctl restart zabbix-agent2

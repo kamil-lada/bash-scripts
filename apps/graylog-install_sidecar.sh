@@ -12,15 +12,15 @@ if [ -z "$GRAYLOG_ADDRESS" ]; then
 fi
 
 if [ -z "$GRAYLOG_PORT" ]; then
-    read -p "Enter Graylog server address (IP or domain): " GRAYLOG_PORT
+    read -p "Enter Graylog server port (def: 9000): " GRAYLOG_PORT
 fi
 
 if [ -z "$GRAYLOG_TOKEN" ]; then
-    read -p "Enter Graylog server address (IP or domain): " GRAYLOG_TOKEN
+    read -p "Enter Graylog server API token: " GRAYLOG_TOKEN
 fi
 
 if [ -z "$GRAYLOG_TAG" ]; then
-    read -p "Enter Graylog server address (IP or domain): " GRAYLOG_TAG
+    read -p "Enter tag for this host (used in automatic config assignement): " GRAYLOG_TAG
 fi
 
 

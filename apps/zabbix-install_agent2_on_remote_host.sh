@@ -2,7 +2,6 @@
 
 
 ### Input pre-config
-HOST_LIST_FILE=""
 PRIVATE_KEY=""
 SSH_USER=""
 ZABBIX_ADDRESS=""
@@ -16,9 +15,16 @@ if [[ "$confirmation" != "y" ]]; then
     exit 1
 fi
 
-if [ -z "$HOST_LIST_FILE" ]; then
-    read -p "Enter path to host list file: " HOST_LIST_FILE
-fi
+log "Enter IPs of all hosts to install Zabbix Agent on. Press ENTER when finished..."
+while true; do
+    read -p "IP: " IP
+    # Break the loop if input is empty
+    if [ -z "$ssh_key_input" ]; then
+        echo "No more IPs to add. Exiting."
+        break
+    fi
+    echo -e "$IP" >> IP_LIST
+done
 
 if [ -z "$PRIVATE_KEY" ]; then
     read -p "Enter path to private key: " PRIVATE_KEY
@@ -29,7 +35,7 @@ if [ -z "$SSH_USER" ]; then
 fi
 
 if [ -z "$ZABBIX_ADDRESS" ]; then
-    read -p "Enter zabbix proxy / server address: " ZABBIX_ADDRESS
+    read -p "Enter zabbix proxy / server address (port): " ZABBIX_ADDRESS
 fi
 
 while IFS= read -r HOST; do
@@ -82,6 +88,6 @@ EOF
             echo "Failed to execute script on $HOST."
         fi
     fi
-done < "$HOST_LIST_FILE"
+done < "$IP_LIST"
 
 echo "Done."

@@ -15,11 +15,11 @@ if [[ "$confirmation" != "y" ]]; then
     exit 1
 fi
 
-log "Enter IPs of all hosts to install Zabbix Agent on. Press ENTER when finished..."
+echo "Enter IPs of all hosts to install Zabbix Agent on. Press ENTER when finished..."
 while true; do
     read -p "IP: " IP
     # Break the loop if input is empty
-    if [ -z "$ssh_key_input" ]; then
+    if [ -z "$IP" ]; then
         echo "No more IPs to add. Exiting."
         break
     fi

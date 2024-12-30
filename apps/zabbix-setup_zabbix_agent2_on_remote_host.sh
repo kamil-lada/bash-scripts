@@ -4,6 +4,7 @@
 ### Input pre-config
 PRIVATE_KEY=""
 SSH_USER=""
+PORT=""
 ZABBIX_ADDRESS=""
 
 
@@ -16,6 +17,9 @@ if [[ "$confirmation" != "y" ]]; then
 fi
 
 echo "Enter IPs of all hosts to install Zabbix Agent on. Press ENTER when finished..."
+# Remove the file if it exists
+rm -f IP_LIST
+
 while true; do
     read -p "IP: " IP
     # Break the loop if input is empty
@@ -23,8 +27,12 @@ while true; do
         echo "No more IPs to add. Exiting."
         break
     fi
-    echo -e "$IP" >> IP_LIST
+    # Append the IP to the file
+    echo "$IP" >> IP_LIST
 done
+
+echo "The following IPs have been added to IP_LIST:"
+cat IP_LIST
 
 if [ -z "$PRIVATE_KEY" ]; then
     read -p "Enter path to private key: " PRIVATE_KEY
@@ -32,6 +40,10 @@ fi
 
 if [ -z "$SSH_USER" ]; then
     read -p "Enter ssh user common for all hosts: " SSH_USER
+fi
+
+if [ -z "$PORT" ]; then
+    read -p "Enter ssh port common for all hosts: " PORT
 fi
 
 if [ -z "$ZABBIX_ADDRESS" ]; then
@@ -42,7 +54,7 @@ while IFS= read -r HOST; do
     if [ -n "$HOST" ]; then
         echo "Connecting to $HOST..."
 
-        ssh -i "$PRIVATE_KEY" -o StrictHostKeyChecking=no $SSH_USER@$HOST 'bash -s' <<'EOF'
+        ssh -i "$PRIVATE_KEY" -p "$PORT" -o StrictHostKeyChecking=no $SSH_USER@$HOST "bash -s" <<EOF
 #!/bin/bash
 
 # Create required directory and set permissions
@@ -70,15 +82,15 @@ PidFile=/var/run/zabbix/zabbix_agent2.pid
 PluginSocket=/run/zabbix/agent.plugin.sock
 Timeout=10
 DebugLevel=3
-Server=$ZABBIX_ADDRESS
-ServerActive=$ZABBIX_ADDRESS
+Server=0.0.0.0/0
+ServerActive=${ZABBIX_ADDRESS}
 EOL
 
 sudo systemctl restart zabbix-agent2
 if [ $? -eq 0 ]; then
-    echo "Zabbix Agent restarted successfully on $HOST."
+    echo "Zabbix Agent restarted successfully on ${HOST}."
 else
-    echo "Failed to restart Zabbix Agent on $HOST."
+    echo "Failed to restart Zabbix Agent on ${HOST}."
 fi
 EOF
 
@@ -88,6 +100,6 @@ EOF
             echo "Failed to execute script on $HOST."
         fi
     fi
-done < "$IP_LIST"
+done < IP_LIST
 
 echo "Done."

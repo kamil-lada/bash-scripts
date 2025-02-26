@@ -41,11 +41,11 @@ mkdir -p ${NPM_DIR} ${PORTAINER_DIR}
 cat > ${NPM_DIR}/docker-compose.yml <<EOL
 services:
   npm:
-    image: jc21/nginx-proxy-manager:2.11.3
+    image: jc21/nginx-proxy-manager:2.12.1
     container_name: npm
     restart: unless-stopped
     networks:
-      - app-net
+      - docker-net
       - proxy-net
     volumes:
       - ./data:/data
@@ -58,9 +58,9 @@ services:
       - 443:443
 
 networks:
-  app-net:
+  docker-net:
     external: true
-    name: app-net
+    name: docker-net
 
   proxy-net:
     external: true
@@ -70,27 +70,29 @@ EOL
 cat > ${PORTAINER_DIR}/docker-compose.yml <<EOL
 services:
   portainer:
-    image: portainer/portainer-ce:2.20.3
+    image: portainer/portainer-ce:2.21.4-alpine
     container_name: portainer
     restart: unless-stopped
     networks:
-      - app-net
+      - docker-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
 
 networks:
-  app-net:
+  docker-net:
     external: true
-    name: app-net
+    name: docker-net
 EOL
 
 # Create Docker networks
 docker network rm app-net || true # Remove existing network if any
+docker network rm docker-net || true # Remove existing network if any
 docker network create \
         --driver bridge \
-        --opt com.docker.network.bridge.name=br-app \
-        app-net
+        --opt com.docker.network.bridge.name=br-docker \
+        -o parent=eth0 \
+        docker-net
 
 
 # Create Docker networks
@@ -98,7 +100,7 @@ docker network rm proxy-net || true  # Remove existing network if any
 docker network create \
         --driver bridge \
         --opt com.docker.network.bridge.name=br-proxy \
-        -o parent=eth0 \
+        -o parent=eth1 \
         proxy-net
 
 echo "Starting services..."

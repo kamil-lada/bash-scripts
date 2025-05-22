@@ -1,5 +1,11 @@
 #!/bin/bash
 
+##############################
+##  This script will setup already installed zabbix agent 2 on remote hosts
+##  Script will ask for private key to get access to hosts
+##  I assumed that there is the same user and port on all hosts, if not run script multiple times
+##############################
+
 
 ### Input pre-config
 PRIVATE_KEY=""

@@ -167,7 +167,7 @@ if [[ "$REPLICATION_CHOICE" == "y" ]]; then
 EOF
 fi
 
-mkdir "$DATA_DIR"/tmp && chown -R mysql:mysql "$DATA_DIR"
+mkdir "$DATA_DIR"/tmp >/dev/null && chown -R mysql:mysql "$DATA_DIR" >/dev/null
 
 # Update AppArmor profile for MariaDB
 if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then

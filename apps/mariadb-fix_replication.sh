@@ -54,7 +54,7 @@ if [[ $? -ne 0 ]]; then
 fi
 
 echo "Downloading backup from master..."
-sudo rm /tmp/mariadb_backup.sql
+sudo rm /tmp/mariadb_backup.sql  > /dev/null 2>&1
 sudo scp -i "$PRIVATE_KEY_PATH" "$USERNAME@$MASTER_HOST:/tmp/mariadb_backup.sql" /tmp/mariadb_backup.sql
 if [[ $? -ne 0 ]]; then
     echo "Failed to download the backup from the master."

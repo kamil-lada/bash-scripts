@@ -10,13 +10,20 @@ get_latest_versions() {
 # Function to install MariaDB
 install_mariadb() {
     local version=$1
+    local codename
+
+    # Detect Debian codename
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        codename="${VERSION_CODENAME:-bookworm}"
+    else
+        codename="bookworm"
+    fi
 
     sudo apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc' >/dev/null 2>&1
-    sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian bookworm main" >/dev/null 2>&1
-
+    sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian ${codename} main" >/dev/null 2>&1
     sudo apt-get update >/dev/null 2>&1
     sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
-
     # Confirm installation with version
     echo "MariaDB Server version $version installed successfully."
 }
@@ -115,8 +122,7 @@ collation-server = utf8mb4_general_ci
 datadir = ${DATA_DIR}
 
 # Performance Improvements
-innodb_buffer_pool_size = 4G
-#innodb_log_file_size = 512M # changed on the bottom
+innodb_buffer_pool_size = 2G
 innodb_flush_method = O_DIRECT
 query_cache_size = 64M
 query_cache_type = 1
@@ -134,7 +140,7 @@ general_log = 1
 general_log_file = ${DATA_DIR}/general.log
 
 # Other recommended settings
-max_connections = 500
+max_connections = 100
 thread_cache_size = 50
 table_open_cache = 2000
 tmp_table_size = 64M
@@ -148,11 +154,13 @@ innodb_data_home_dir = ${DATA_DIR}
 innodb_log_group_home_dir = ${DATA_DIR}
 
 # Fix for "eror reading comunication packets"
-max_allowed_packet=1024M
+max_allowed_packet=256M
 net_read_timeout=3600
 net_write_timeout=3600
 innodb_log_buffer_size = 32M
-innodb_log_file_size = 2047M
+innodb_log_file_size = 512M
+net_read_timeout = 600
+net_write_timeout = 600
 EOF
 
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then

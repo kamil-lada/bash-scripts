@@ -173,8 +173,7 @@ install_base_packages() {
 
     run_cmd "Updating package lists" apt-get update
 
-    # Base packages
-    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo parted tcpdump qemu-guest-agent iproute2"
+    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo parted tcpdump qemu-guest-agent iproute2 resolvconf"
 
     if [[ "$codename" == "bookworm" ]]; then
         if apt-cache show software-properties-common >/dev/null 2>&1; then

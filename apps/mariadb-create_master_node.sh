@@ -11,20 +11,37 @@ get_latest_versions() {
 install_mariadb() {
     local version=$1
     local codename
+    local debian_version
 
     # Detect Debian codename
     if [[ -f /etc/os-release ]]; then
         source /etc/os-release
         codename="${VERSION_CODENAME:-bookworm}"
+        debian_version="${VERSION_ID:-12}"
     else
         codename="bookworm"
+        debian_version="12"
     fi
 
-    sudo apt-key adv --fetch-keys 'https://mariadb.org/mariadb_release_signing_key.asc' >/dev/null 2>&1
-    sudo add-apt-repository -y "deb [arch=amd64,arm64,ppc64el] https://mirror.mariadb.org/repo/${version}/debian ${codename} main" >/dev/null 2>&1
+    # Install dependencies
     sudo apt-get update >/dev/null 2>&1
-    sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
-    # Confirm installation with version
+
+    # Install jq if not present
+    if ! command -v jq &> /dev/null; then
+        sudo apt-get install -y jq >/dev/null 2>&1
+    fi
+
+    # ... existing repository setup code ...
+
+    # Install MariaDB with version-specific packages
+    if [[ "$debian_version" == "13" ]]; then
+        # Debian 13 requires mariadb-client-compat for mysql_secure_installation
+        sudo apt-get install -y mariadb-server mariadb-client-compat expect >/dev/null 2>&1
+    else
+        # Debian 12 and older
+        sudo apt-get install -y mariadb-server expect >/dev/null 2>&1
+    fi
+
     echo "MariaDB Server version $version installed successfully."
 }
 

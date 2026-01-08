@@ -172,8 +172,6 @@ innodb_log_group_home_dir = ${DATA_DIR}
 
 # Fix for "eror reading comunication packets"
 max_allowed_packet=256M
-net_read_timeout=3600
-net_write_timeout=3600
 innodb_log_buffer_size = 32M
 innodb_log_file_size = 512M
 net_read_timeout = 600

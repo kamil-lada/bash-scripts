@@ -170,7 +170,7 @@ tmpdir = ${DATA_DIR}/tmp
 innodb_data_home_dir = ${DATA_DIR}
 innodb_log_group_home_dir = ${DATA_DIR}
 
-# Fix for "eror reading comunication packets"
+# Other
 max_allowed_packet=256M
 innodb_log_buffer_size = 32M
 innodb_log_file_size = 512M

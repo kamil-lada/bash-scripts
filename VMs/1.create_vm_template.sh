@@ -173,7 +173,7 @@ install_base_packages() {
 
     run_cmd "Updating package lists" apt-get update
 
-    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo parted tcpdump qemu-guest-agent iproute2 resolvconf"
+    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo parted tcpdump qemu-guest-agent iproute2"
 
     if [[ "$codename" == "bookworm" ]]; then
         if apt-cache show software-properties-common >/dev/null 2>&1; then
@@ -198,6 +198,31 @@ upgrade_system() {
     run_cmd "Upgrading system packages" bash -c '
         DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
     '
+}
+
+install_resolvconf() {
+    # Save current DNS servers before resolvconf takes over
+    local dns_servers=""
+    if [[ -f /etc/resolv.conf ]]; then
+        dns_servers=$(grep "^nameserver" /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ')
+    fi
+
+    # Use default DNS if none found
+    if [[ -z "$dns_servers" ]]; then
+        dns_servers="9.9.9.9 1.1.1.1"
+    fi
+
+    run_cmd "Installing resolvconf package" bash -c '
+        DEBIAN_FRONTEND=noninteractive apt-get install -y resolvconf
+    '
+
+    # Restore DNS servers after resolvconf installation
+    run_cmd "Restoring DNS configuration" bash -c "
+        cat > /etc/resolv.conf <<EOF
+# DNS configuration
+$(for dns in $dns_servers; do echo "nameserver $dns"; done)
+EOF
+    "
 }
 
 configure_timezone() {
@@ -684,6 +709,7 @@ EOF
     install_base_packages "$codename"
     install_java
     upgrade_system
+    install_resolvconf
     configure_timezone "$timezone"
     configure_swappiness
     configure_shell_aliases

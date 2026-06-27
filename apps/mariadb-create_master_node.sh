@@ -132,29 +132,24 @@ cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 pid-file = /run/mysqld/mysqld.pid
 basedir = /usr
 bind-address = 0.0.0.0
-expire_logs_days = 10
-max_binlog_size = 500M
 character-set-server = utf8mb4
 collation-server = utf8mb4_general_ci
 datadir = ${DATA_DIR}
 
 # Performance Improvements
-innodb_buffer_pool_size = 2G
-innodb_flush_method = O_DIRECT
-query_cache_size = 64M
-query_cache_type = 1
+innodb_buffer_pool_size = 1G
 
 # Preventing Data Corruption
 innodb_flush_log_at_trx_commit = 1
 innodb_doublewrite = 1
-sync_binlog = 1
 
 # Log Settings
 log_error = ${DATA_DIR}/error.log
 slow_query_log = 1
 slow_query_log_file = ${DATA_DIR}/slow.log
-general_log = 1
+general_log = 0
 general_log_file = ${DATA_DIR}/general.log
+loose-log_slow_always_query_time = 5
 
 # Other recommended settings
 max_connections = 100
@@ -171,22 +166,28 @@ innodb_data_home_dir = ${DATA_DIR}
 innodb_log_group_home_dir = ${DATA_DIR}
 
 # Other
-max_allowed_packet=256M
+max_allowed_packet=128M
 innodb_log_buffer_size = 32M
-innodb_log_file_size = 512M
-net_read_timeout = 600
-net_write_timeout = 600
+innodb_log_file_size = 256M
+net_read_timeout = 60
+net_write_timeout = 60
+innodb_snapshot_isolation = OFF
+innodb_print_all_deadlocks = 1
+
 EOF
 
 if [[ "$REPLICATION_CHOICE" == "y" ]]; then
     cat  <<EOF | sudo tee -a "$CONFIG_FILE" >/dev/null
-        # Replication Settings
-        server_id = 1
-        log_bin = ${DATA_DIR}/mariadb-bin
-        binlog_format = ROW
-        binlog_checksum = CRC32
-        gtid_strict_mode = ON
-        log_slave_updates = ON
+# Replication Settings
+server_id = 1
+log_bin = ${DATA_DIR}/mariadb-bin
+binlog_format = ROW
+binlog_checksum = CRC32
+gtid_strict_mode = ON
+log_slave_updates = ON
+expire_logs_days = 10
+max_binlog_size = 500M
+sync_binlog = 1
 EOF
 fi
 

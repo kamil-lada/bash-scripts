@@ -136,42 +136,39 @@ cat <<EOF | sudo tee "$CONFIG_FILE" >/dev/null
 pid-file = /run/mysqld/mysqld.pid
 basedir = /usr
 bind-address = 0.0.0.0
-#expire_logs_days = 3
-#max_binlog_size = 500M
 character-set-server = utf8mb4
 collation-server = utf8mb4_general_ci
 datadir = $DATA_DIR
 
 # Performance Improvements
-innodb_buffer_pool_size = 2G
-innodb_log_file_size = 512M
-innodb_flush_method = O_DIRECT
-query_cache_size = 64M
-query_cache_type = 1
+innodb_buffer_pool_size = 1G
+innodb_log_file_size = 256M
 
 # Preventing Data Corruption
 innodb_flush_log_at_trx_commit = 1
 innodb_doublewrite = 1
-sync_binlog = 1
 
 # Replication Settings
 server_id = 2
 gtid_strict_mode = ON
-gtid_domain_id = 1
+gtid_domain_id = 0
 slave_parallel_mode = conservative
+slave_parallel_threads = 4
 slave_exec_mode = IDEMPOTENT
 replicate-ignore-db = pma
 replicate-ignore-db = sys
 replicate-ignore-db = performance_schema
 replicate-ignore-db = mysql
 replicate-ignore-db = information_schema
+loose-slave_abort_blocking_timeout = 60
 
 # Log Settings
 log_error = $DATA_DIR/error.log
 slow_query_log = 1
 slow_query_log_file = $DATA_DIR/slow.log
-general_log = 1
+general_log = 0
 general_log_file = $DATA_DIR/general.log
+loose-log_slow_always_query_time = 5
 
 # Other recommended settings
 max_connections = 100
@@ -179,6 +176,8 @@ thread_cache_size = 50
 table_open_cache = 2000
 tmp_table_size = 64M
 max_heap_table_size = 64M
+innodb_snapshot_isolation = OFF
+innodb_print_all_deadlocks = 1
 
 # Paths for other files
 tmpdir = $DATA_DIR/tmp
@@ -188,14 +187,11 @@ innodb_data_home_dir = $DATA_DIR
 innodb_log_group_home_dir = $DATA_DIR
 
 # Fix for "eror reading comunication packets"
-max_allowed_packet=256M
+max_allowed_packet=128M
 net_read_timeout=3600
 net_write_timeout=3600
 innodb_log_buffer_size = 32M
 
-# Other
-net_read_timeout = 600
-net_write_timeout = 600
 EOF
 
 mkdir "$DATA_DIR"/tmp && chown -R mysql:mysql "$DATA_DIR"

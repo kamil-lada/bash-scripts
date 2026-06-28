@@ -5,15 +5,19 @@
 # Check interface name, line 101
 #
 ############################
+if [[ $EUID -ne 0 ]]; then
+  log_error "This script must be run as root"
+  exit 1
+fi
 
 # Define directories and Docker Compose files
-NPM_DIR="/data/npm"
-PORTAINER_DIR="/data/portainer"
+NPM_DIR="/data/stacks/npm"
+PORTAINER_DIR="/data/stacks/portainer"
 
 # Stop services
 echo "Stopping and removing existing containers..."
-docker compose -f ${NPM_DIR}/docker-compose.yml down
-docker compose -f ${PORTAINER_DIR}/docker-compose.yml down
+sudo -u debian docker compose -f ${NPM_DIR}/docker-compose.yml down
+sudo -u debian docker compose -f ${PORTAINER_DIR}/docker-compose.yml down
 
 
 # Define variables
@@ -21,21 +25,18 @@ BACKUP_DIR="/data/_backups"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Create the backup directory if it doesn't exist
-mkdir -p "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR" && echo "$BACKUP_DIR created" || echo "$BACKUP_DIR already existed"
 
 # Create the compressed backup, including all files and hidden files
 tar -czvf "$BACKUP_DIR/backup_portainer_$TIMESTAMP.tar.gz" -C ${PORTAINER_DIR} . >/dev/null
 tar -czvf "$BACKUP_DIR/backup_npm_$TIMESTAMP.tar.gz" -C ${NPM_DIR} . >/dev/null
-
-# Optional: Remove old backups (e.g., keep only the last 7 backups)
-find "$BACKUP_DIR" -type f -name "*.tar.gz" -mtime +7 -exec rm {} \;
 
 echo "Backup completed: $BACKUP_FILE"
 
 
 
 # Create necessary directories
-mkdir -p ${NPM_DIR} ${PORTAINER_DIR}
+mkdir -p ${NPM_DIR} ${PORTAINER_DIR} && echo "Dirs created" || echo "Dirs already existed"
 
 # Create Docker Compose files
 cat > ${NPM_DIR}/docker-compose.yml <<EOL
@@ -45,77 +46,79 @@ services:
     container_name: npm
     restart: unless-stopped
     networks:
-      - docker-net
-      - proxy-net
+      - proxy-10-net
+      - proxy-20-net
     volumes:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
     environment:
-      - DB_SQLITE_FILE=/data/database.sqlite
+      - TZ=Europe/Warsaw
     ports:
       - 81:81
       - 80:80
       - 443:443
 
 networks:
-  docker-net:
+  proxy-10-net:
     external: true
-    name: docker-net
+    name: proxy-10-net
 
-  proxy-net:
+  proxy-20-net:
     external: true
-    name: proxy-net
+    name: proxy-20-net
 EOL
+
 
 cat > ${PORTAINER_DIR}/docker-compose.yml <<EOL
 services:
   portainer:
-    image: portainer/portainer-ce:2.21.4-alpine
+    image: portainer/portainer-ce:2.39.4-alpine
     container_name: portainer
     restart: unless-stopped
+    environment:
+      - TZ=Europe/Warsaw
     networks:
-      - docker-net
+      - proxy-20-net
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
 
 networks:
-  docker-net:
+  proxy-20-net:
     external: true
-    name: docker-net
+    name: proxy-20-net
 EOL
 
 # Create Docker networks
-docker network rm app-net || true # Remove existing network if any
-docker network rm docker-net || true # Remove existing network if any
-docker network create \
+docker network rm proxy-10-net || true # Remove existing network if any
+sudo -u debian docker network create \
         --driver bridge \
-        --opt com.docker.network.bridge.name=br-docker \
-        -o parent=eth0 \
-        docker-net
+        --opt com.docker.network.bridge.name=br-proxy-lan \
+        proxy-10-net
 
 
 # Create Docker networks
 docker network rm proxy-net || true  # Remove existing network if any
-docker network create \
+sudo -u debian docker network create \
         --driver bridge \
-        --opt com.docker.network.bridge.name=br-proxy \
-        -o parent=eth1 \
-        proxy-net
+        --opt com.docker.network.bridge.name=br-proxy-server \
+        proxy-20-net
 
 echo "Starting services..."
-docker compose -f ${NPM_DIR}/docker-compose.yml up -d --remove-orphans
-docker compose -f ${PORTAINER_DIR}/docker-compose.yml up -d --remove-orphans
+cd ${NPM_DIR}
+sudo -u debian docker compose -f ${NPM_DIR}/docker-compose.yml up -d --remove-orphans
+cd ${PORTAINER_DIR}
+sudo -u debian docker compose -f ${PORTAINER_DIR}/docker-compose.yml up -d --remove-orphans
 
 # Check the status
 echo "Checking container status..."
-docker ps --format "table {{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}\t{{.CreatedAt}}"
+sudo -u debian docker ps --format "table {{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}\t{{.CreatedAt}}"
 sleep 3
 # Check logs for potential errors
 echo "Checking nginx-proxy-manager logs..."
-docker logs npm
+sudo -u debian docker logs npm
 
 echo "Checking portainer logs..."
-docker logs portainer
+sudo -u debian docker logs portainer
 
 echo "Deployment completed."

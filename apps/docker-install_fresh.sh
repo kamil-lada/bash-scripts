@@ -7,12 +7,6 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# Exit if run as the default 'debian' user
-if [ "$(whoami)" = "debian" ]; then
-    echo "This script should not be run as the default 'debian' user. Exiting."
-    exit 1
-fi
-
 read -rp "Do you want to use a custom Docker data location? (y/n) " use_custom
 if [[ "$use_custom" =~ ^[Yy]$ ]]; then
     read -rp "Enter the path for Docker data (default: /data/docker): " custom_path

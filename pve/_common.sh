@@ -427,7 +427,7 @@ install_base_packages() {
     local codename="$1"
     run_cmd "Updating package lists" apt-get update
 
-    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate resolvconf unattended-upgrades tcpdump iproute2"
+    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2"
 
     if ! is_lxc; then
         base_packages="$base_packages qemu-guest-agent parted"
@@ -462,15 +462,6 @@ configure_unattended_upgrades() {
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
-    '
-}
-
-ensure_dns_config() {
-    run_cmd "Ensuring DNS configuration" bash -c '
-    if ! grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
-        echo "nameserver 9.9.9.9" > /etc/resolv.conf
-        echo "nameserver 1.1.1.1" >> /etc/resolv.conf
-    fi
     '
 }
 

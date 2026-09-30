@@ -202,10 +202,10 @@ load_config() {
     if [[ -f "$config_path" ]]; then
         source "$config_path"
         log_info "Config loaded from: $config_path"
-        return 0
+    else
+        log_info "No config file, using interactive mode"
     fi
-    log_info "No config file, using interactive mode"
-    return 1
+    return 0
 }
 
 check_package_in_repo() {

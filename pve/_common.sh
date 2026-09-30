@@ -505,9 +505,8 @@ configure_console_banner() {
 }
 
 configure_motd() {
-    run_cmd "Configuring dynamic MOTD" bash -c '
-    mkdir -p /etc/update-motd.d
-    cat > /etc/update-motd.d/10-system-info <<"EOF"
+    run_cmd "Creating MOTD directory" mkdir -p /etc/update-motd.d
+    cat > /etc/update-motd.d/10-system-info <<'EOF'
 #!/bin/bash
 echo ""
 echo "  ═════════════════════════════════════════════"

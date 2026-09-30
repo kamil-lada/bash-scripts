@@ -521,7 +521,6 @@ echo "  ════════════════════════
 echo ""
 EOF
 chmod +x /etc/update-motd.d/10-system-info
-    '
 }
 
 clean_packages() {

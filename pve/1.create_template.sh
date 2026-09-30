@@ -256,7 +256,6 @@ main() {
     install_java
     upgrade_system
     configure_unattended_upgrades
-    ensure_dns_config
     configure_shell_aliases
     harden_ssh
     configure_time_sync "$timezone"

@@ -102,6 +102,14 @@ configure_optional_disk() {
     log_success "Disk configured and mounted at $mount_point"
 }
 
+open_ssh_for_template() {
+    run_cmd "Ensuring SSH allows password login" bash -c '
+    sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
+    sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config
+    systemctl restart ssh
+    '
+}
+
 ############################################################# MAIN
 show_intro() {
     echo ""
@@ -251,7 +259,7 @@ main() {
     log_section "Creating Template"
 
     create_admin_user "${ssh_keys[@]}"
-    secure_root_account
+    open_ssh_for_template
     install_base_packages "$codename"
     install_java
     upgrade_system

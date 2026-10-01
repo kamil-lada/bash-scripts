@@ -237,4 +237,187 @@ main() {
 
     # Zabbix
     local install_zabbix="n" zabbix_address="" zabbix_port=""
-    if [[ -n "${INSTALL_ZABBIX:-}" && "${INSTALL_ZABBIX}" =~ ^[
+    if [[ -n "${INSTALL_ZABBIX:-}" && "${INSTALL_ZABBIX}" =~ ^[Yy]$ ]]; then
+        install_zabbix="y"
+        zabbix_address="${ZABBIX_ADDRESS:-}"
+        zabbix_port="${ZABBIX_PORT:-10051}"
+        log_info "Zabbix from config: $zabbix_address:$zabbix_port"
+    else
+        read -rp "Install Zabbix Agent 2? (y/N): " install_zabbix
+        install_zabbix="${install_zabbix:-n}"
+    fi
+
+    if [[ "$install_zabbix" =~ ^[Yy]$ ]] && [[ -z "$zabbix_address" ]]; then
+        while true; do
+            read -rp "Zabbix server address: " zabbix_address
+            [[ -n "$zabbix_address" ]] && break
+            log_error "Zabbix address cannot be empty"
+        done
+        read -rp "Zabbix server port [10051]: " zabbix_port
+        zabbix_port="${zabbix_port:-10051}"
+    fi
+    echo ""
+
+    # Graylog
+    local install_graylog="n" graylog_address="" graylog_api_token="" graylog_tags=""
+    if [[ -n "${INSTALL_GRAYLOG:-}" && "${INSTALL_GRAYLOG}" =~ ^[Yy]$ ]]; then
+        install_graylog="y"
+        graylog_address="${GRAYLOG_ADDRESS:-}"
+        graylog_api_token="${GRAYLOG_API_TOKEN:-}"
+        graylog_tags="${GRAYLOG_TAGS:-linux}"
+        log_info "Graylog from config: $graylog_address"
+    else
+        read -rp "Install Graylog Sidecar? (y/N): " install_graylog
+        install_graylog="${install_graylog:-n}"
+    fi
+
+    if [[ "$install_graylog" =~ ^[Yy]$ ]] && [[ -z "$graylog_address" ]]; then
+        while true; do
+            read -rp "Graylog server URL (must end with /api/): " graylog_address
+            if [[ -n "$graylog_address" ]]; then
+                if [[ ! "$graylog_address" =~ /api/?$ ]]; then
+                    if [[ "$graylog_address" =~ /$ ]]; then
+                        graylog_address="${graylog_address}api/"
+                    else
+                        graylog_address="${graylog_address}/api/"
+                    fi
+                fi
+                if validate_graylog_url "$graylog_address"; then
+                    break
+                fi
+            fi
+            log_error "Invalid URL"
+        done
+        while true; do
+            read -rp "Graylog API token: " graylog_api_token
+            [[ -n "$graylog_api_token" ]] && break
+            log_error "API token cannot be empty"
+        done
+        read -rp "Additional tags [linux]: " graylog_tags
+        graylog_tags="${graylog_tags:-linux}"
+    fi
+    echo ""
+
+    # VM-only: Swap
+    local create_swap="n" swap_size="1"
+    if ! is_lxc; then
+        if [[ -n "${CREATE_SWAP:-}" && "${CREATE_SWAP}" =~ ^[Yy]$ ]]; then
+            create_swap="y"
+            swap_size="${SWAP_SIZE_GB:-1}"
+            log_info "Swap from config: ${swap_size}GB"
+        else
+            read -rp "Create swapfile? (y/N): " create_swap
+            create_swap="${create_swap:-n}"
+        fi
+
+        if [[ "$create_swap" =~ ^[Yy]$ ]] && [[ -z "${SWAP_SIZE_GB:-}" ]]; then
+            read -rp "Swapfile size in GB [1]: " swap_size
+            swap_size="${swap_size:-1}"
+        fi
+        echo ""
+    fi
+
+    # Bash scripts repo
+    local clone_repo="n"
+    if [[ -n "${CLONE_REPO:-}" && "${CLONE_REPO}" =~ ^[Yy]$ ]]; then
+        clone_repo="y"
+    else
+        read -rp "Clone bash-scripts repository? (y/N): " clone_repo
+        clone_repo="${clone_repo:-n}"
+    fi
+    echo ""
+
+    # Summary
+    log_section "Configuration Summary"
+    echo "  Environment: $(is_lxc && echo "LXC" || echo "VM")"
+    echo "  Hostname: $new_hostname"
+    echo "  Domain: $domain"
+    echo "  FQDN: $new_hostname.$domain"
+    if [[ "$install_zabbix" =~ ^[Yy]$ ]]; then
+        echo "  Zabbix: $zabbix_address:$zabbix_port"
+    fi
+    if [[ "$install_graylog" =~ ^[Yy]$ ]]; then
+        echo "  Graylog: $graylog_address"
+    fi
+    if ! is_lxc; then
+        if [[ "$configure_network_flag" == "yes" ]]; then
+            echo "  Network: $network_type"
+            if [[ "$network_type" == "static" ]]; then
+                echo "    IP: $static_ip/$cidr"
+                echo "    Gateway: $gateway"
+            fi
+        else
+            echo "  Network: Skipped (other network manager active)"
+        fi
+        if [[ "$create_swap" =~ ^[Yy]$ ]]; then
+            echo "  Swapfile: ${swap_size}GB"
+        fi
+    else
+        echo "  Network: Managed by Proxmox"
+    fi
+    echo ""
+
+    read -rp "Proceed with initialization? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        log_info "Aborted by user"
+        exit 0
+    fi
+
+    # Execute
+    log_section "Initializing Instance"
+
+    regenerate_ssh_keys
+
+    # VM-only: regenerate machine-id
+    if ! is_lxc; then
+        regenerate_machine_id
+    fi
+
+    set_hostname "$new_hostname" "$domain"
+
+    # Network (VM only — LXC handled by Proxmox)
+    if [[ "$configure_network_flag" == "yes" ]]; then
+        configure_network "$network_type" "$static_ip" "$cidr" "$gateway" "$dns_servers" "$enable_legacy_naming"
+    fi
+
+    configure_time_sync "${INSTANCE_TIMEZONE:-Europe/Warsaw}"
+
+    if [[ "$install_zabbix" =~ ^[Yy]$ ]]; then
+        install_zabbix "$codename" "$zabbix_address" "$zabbix_port" "$new_hostname"
+    fi
+
+    if [[ "$install_graylog" =~ ^[Yy]$ ]]; then
+        install_graylog "$graylog_address" "$graylog_api_token" "$graylog_tags"
+    fi
+
+    if ! is_lxc && [[ "$create_swap" =~ ^[Yy]$ ]]; then
+        create_swapfile "$swap_size"
+    fi
+
+    if [[ "$clone_repo" =~ ^[Yy]$ ]]; then
+        clone_bash_scripts
+    fi
+
+    start_services
+
+    # Lock down AFTER everything is configured and working
+    harden_ssh
+    secure_root_account
+
+    # Verification and summary
+    verify_installation
+    show_final_summary
+
+    log_info "Initialization complete"
+    echo ""
+    log_warning "A reboot is recommended to apply all changes"
+    read -rp "Reboot now? (Y/n): " reboot_now
+    reboot_now="${reboot_now:-y}"
+    if [[ "$reboot_now" =~ ^[Yy]$ ]]; then
+        sync
+        sleep 3
+        systemctl reboot
+    fi
+}
+
+main "$@"

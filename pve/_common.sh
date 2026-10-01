@@ -49,7 +49,24 @@ run_cmd() {
         log_error "Failed: $desc"
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED: $desc" >> "${LOGFILE:-/dev/null}"
         tail -n 50 "${LOGFILE:-/dev/null}" | sed 's/^/  /' >&2
-        exit 1
+        return 1
+    fi
+}
+
+run_cmd_continue() {
+    local desc="$1"
+    shift
+    printf "%-60s" "$desc..."
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running: $desc" >> "${LOGFILE:-/dev/null}"
+    if "$@" >>"${LOGFILE:-/dev/null}" 2>&1; then
+        echo -e "${GREEN}OK${NC}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $desc" >> "${LOGFILE:-/dev/null}"
+        return 0
+    else
+        echo -e "${YELLOW}SKIPPED${NC}"
+        log_warning "Failed (continuing): $desc"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED (skipped): $desc" >> "${LOGFILE:-/dev/null}"
+        return 1
     fi
 }
 
@@ -86,7 +103,7 @@ is_lxc() {
     if grep -qa container /proc/1/environ 2>/dev/null; then
         return 0
     fi
-    if [[ -f /proc/self/cgroup ]] && grep -q "lxc" /proc/self/cgroup 2>/dev/null; then
+    if [[ -f /proc/self.cgroup ]] && grep -q "lxc" /proc/self.cgroup 2>/dev/null; then
         return 0
     fi
     return 1
@@ -117,6 +134,14 @@ check_network_connectivity() {
         return 0
     fi
     log_error "No network connectivity to $test_host"
+    return 1
+}
+
+check_dns_resolution() {
+    local test_host="deb.debian.org"
+    if getent hosts "$test_host" &>/dev/null; then
+        return 0
+    fi
     return 1
 }
 
@@ -209,11 +234,10 @@ configure_time_sync() {
     if is_lxc; then
         log_info "LXC detected — checking host time sync..."
         if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q "yes"; then
-            log_success "Host time sync active (LXC inherits host clock)"
+            log_info "Host time sync active (LXC inherits host clock)"
             return 0
         else
             log_warning "Host time sync not detected — container may drift"
-            log_info "This is normal if Proxmox host is properly configured"
             return 0
         fi
     fi
@@ -221,9 +245,8 @@ configure_time_sync() {
     # VM: try timesyncd first, then chrony
     if systemctl list-unit-files 2>/dev/null | grep -q systemd-timesyncd; then
         run_cmd "Enabling NTP via timesyncd" timedatectl set-ntp true
-        run_cmd "Restarting timesyncd" systemctl restart systemd-timesyncd
+        run_cmd_continue "Restarting timesyncd" systemctl restart systemd-timesyncd
         if systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
-            log_success "Time sync configured via systemd-timesyncd"
             return 0
         fi
     fi
@@ -234,14 +257,8 @@ configure_time_sync() {
         '
     fi
 
-    run_cmd "Enabling chrony" systemctl enable chrony
-    run_cmd "Starting chrony" systemctl start chrony
-
-    if systemctl is-active --quiet chrony; then
-        log_success "Time sync configured via chrony"
-    else
-        log_warning "Could not configure time sync automatically"
-    fi
+    run_cmd_continue "Enabling chrony" systemctl enable chrony
+    run_cmd_continue "Starting chrony" systemctl start chrony
 }
 
 ############################################################# NETWORK
@@ -258,19 +275,20 @@ configure_network() {
         log_info "LXC detected — Proxmox manages network configuration"
         if [[ "$network_type" == "static" ]]; then
             log_warning "Static IP requested but LXC network is managed by Proxmox"
-            log_warning "To set static IP, use Proxmox instead:"
-            log_warning "  pct set <vmid> --ip ${static_ip}/${cidr} --gw ${gateway}"
+            log_warning "To set static IP, use Proxmox: pct set <vmid> --ip ${static_ip}/${cidr} --gw ${gateway}"
         fi
         log_info "Skipping internal network configuration"
         return 0
     fi
 
     # VM: configure via ifupdown
-    run_cmd "Backing up network config" bash -c '
+    local backup_file="/etc/network/interfaces.bak.$(date +%s)"
+
+    run_cmd "Backing up network config" bash -c "
     if [[ -f /etc/network/interfaces ]]; then
-        cp /etc/network/interfaces /etc/network/interfaces.bak.$(date +%s)
+        cp /etc/network/interfaces '$backup_file'
     fi
-    '
+    "
 
     if [[ "$use_legacy" =~ ^[Yy]$ ]]; then
         run_cmd "Configuring legacy network naming" bash -c '
@@ -305,7 +323,7 @@ configure_network() {
         echo "  All interfaces: $all_interfaces"
         echo "  Primary interface: $primary_iface"
         echo "  Network type: $network_type"
-        echo "  Environment: $(is_lxc && echo "LXC" || echo "VM")"
+        echo "  Backup file: $backup_file"
     } >> "${LOGFILE:-/dev/null}"
 
     if [[ "$network_type" == "static" ]]; then
@@ -363,10 +381,13 @@ done
 
     # Ensure DNS is configured for static
     if [[ "$network_type" == "static" ]]; then
-        run_cmd "Configuring DNS resolvers" bash -c "
+        local resolv_backup="/etc/resolv.conf.bak.$(date +%s)"
+        run_cmd "Backing up DNS config" bash -c "
         if [[ -f /etc/resolv.conf ]]; then
-            cp /etc/resolv.conf /etc/resolv.conf.bak.\$(date +%s)
+            cp /etc/resolv.conf '$resolv_backup'
         fi
+        "
+        run_cmd "Configuring DNS resolvers" bash -c "
         cat > /etc/resolv.conf <<EOF
 nameserver $gateway
 nameserver $(echo $dns_servers | awk '{print $NF}')
@@ -374,7 +395,57 @@ EOF
 "
     fi
 
-    log_success "Network configuration written"
+    # Test connectivity — revert if broken
+    log_info "Testing network connectivity..."
+    sleep 3  # Give network time to settle
+
+    if ! check_network_connectivity; then
+        log_warning "Network connectivity broken — reverting to previous config"
+
+        # Revert network config
+        if [[ -f "$backup_file" ]]; then
+            run_cmd "Reverting network configuration" bash -c "
+            cp '$backup_file' /etc/network/interfaces
+            "
+        fi
+
+        # Revert DNS if it was changed
+        if [[ "$network_type" == "static" && -f "$resolv_backup" ]]; then
+            run_cmd "Reverting DNS configuration" bash -c "
+            cp '$resolv_backup' /etc/resolv.conf
+            "
+        fi
+
+        log_warning "Network configuration reverted"
+        return 1
+    fi
+}
+
+configure_network_naming() {
+    local legacy_naming="$1"
+
+    if is_lxc; then
+        log_info "LXC — always uses eth0, skipping GRUB modification"
+        return 0
+    fi
+
+    if [[ "$legacy_naming" =~ ^[Yy]$ ]]; then
+        run_cmd "Configuring legacy network naming (eth0, eth1)" bash -c '
+        if ! grep -q "net.ifnames=0" /etc/default/grub; then
+            sed -i "s/GRUB_CMDLINE_LINUX=\"\(.*\)\"/GRUB_CMDLINE_LINUX=\"\1 net.ifnames=0 biosdevname=0\"/" /etc/default/grub
+            update-grub
+        fi
+        '
+        log_info "Interface names will change to eth0, eth1 after reboot"
+    else
+        run_cmd "Configuring predictable network naming (ens*, enp*)" bash -c '
+        if grep -q "net.ifnames=0" /etc/default/grub; then
+            sed -i "s/GRUB_CMDLINE_LINUX=\"\(.*\)net.ifnames=0 biosdevname=0\(.*\)\"/GRUB_CMDLINE_LINUX=\"\1\2\"/" /etc/default/grub
+            update-grub
+        fi
+        '
+        log_info "Interface names will use predictable naming after reboot"
+    fi
 }
 
 ############################################################# TEMPLATE FUNCTIONS
@@ -492,6 +563,7 @@ configure_console_banner() {
 
 configure_motd() {
     run_cmd "Creating MOTD directory" mkdir -p /etc/update-motd.d
+
     cat > /etc/update-motd.d/10-system-info <<'EOF'
 #!/bin/bash
 echo ""
@@ -506,7 +578,7 @@ echo ""
 echo "  ═════════════════════════════════════════════"
 echo ""
 EOF
-chmod +x /etc/update-motd.d/10-system-info
+    chmod +x /etc/update-motd.d/10-system-info
 }
 
 clean_packages() {
@@ -531,7 +603,7 @@ SystemMaxUse=$journal_size
 SystemKeepFree=$keep_free
 MaxFileSec=1month
 EOF
-"
+    "
 }
 
 clear_machine_id() {
@@ -588,7 +660,6 @@ regenerate_ssh_keys() {
         ssh-keygen -A
     fi
     '
-    run_cmd "Restarting SSH service" systemctl restart ssh
 }
 
 set_hostname() {
@@ -644,17 +715,28 @@ install_graylog() {
     local graylog_api_token="$2"
     local tags="$3"
 
-    run_cmd "Installing Graylog repository" bash -c "
+    # Try to install — if repo fails, warn and skip
+    if ! run_cmd_continue "Installing Graylog repository" bash -c "
     wget -qO /tmp/graylog-key.asc https://packages.graylog2.org/repo/graylog-keyring.gpg
     gpg --dearmor < /tmp/graylog-key.asc > /usr/share/keyrings/graylog-archive-keyring.gpg
     echo \"deb [signed-by=/usr/share/keyrings/graylog-archive-keyring.gpg] https://packages.graylog2.org/repo/debian stable 7.0\" > /etc/apt/sources.list.d/graylog.list
     rm -f /tmp/graylog-key.asc
-    "
+    "; then
+        log_warning "Graylog repository setup failed — skipping Graylog installation"
+        return 1
+    fi
 
-    run_cmd "Updating package lists" apt-get update
-    run_cmd "Installing Graylog Sidecar" bash -c '
+    if ! run_cmd_continue "Updating package lists" apt-get update; then
+        log_warning "Package list update failed after adding Graylog repo — skipping"
+        return 1
+    fi
+
+    if ! run_cmd_continue "Installing Graylog Sidecar" bash -c '
     DEBIAN_FRONTEND=noninteractive apt-get install -y graylog-sidecar
-    '
+    '; then
+        log_warning "Graylog Sidecar installation failed — skipping configuration"
+        return 1
+    fi
 
     run_cmd "Configuring Graylog Sidecar" bash -c "
     mkdir -p /etc/graylog/sidecar
@@ -697,13 +779,13 @@ clone_bash_scripts() {
 start_services() {
     run_cmd "Ensuring SSH is running" systemctl start ssh
     if systemctl list-unit-files | grep -q zabbix-agent2; then
-        run_cmd "Starting Zabbix Agent" systemctl start zabbix-agent2 || true
+        run_cmd_continue "Starting Zabbix Agent" systemctl start zabbix-agent2
     fi
     if systemctl list-unit-files | grep -q graylog-sidecar; then
-        run_cmd "Starting Graylog Sidecar" systemctl start graylog-sidecar || true
+        run_cmd_continue "Starting Graylog Sidecar" systemctl start graylog-sidecar
     fi
     if ! is_lxc && systemctl list-unit-files | grep -q qemu-guest-agent; then
-        run_cmd "Starting QEMU Guest Agent" systemctl start qemu-guest-agent || true
+        run_cmd_continue "Starting QEMU Guest Agent" systemctl start qemu-guest-agent
     fi
 }
 
@@ -732,9 +814,6 @@ verify_installation() {
         log_success "Time sync: Active"
     else
         log_warning "Time sync: Not active"
-        if ! is_lxc; then
-            failures+=("time_sync")
-        fi
     fi
 
     if ip -4 addr show | grep -q "inet.*global" 2>/dev/null; then

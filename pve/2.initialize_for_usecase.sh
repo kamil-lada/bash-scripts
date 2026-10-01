@@ -33,15 +33,6 @@ check_using_predictable_names() {
     return 1
 }
 
-regenerate_machine_id() {
-    run_cmd "Regenerating machine-id" bash -c '
-    if [[ ! -s /etc/machine-id ]]; then
-        systemd-machine-id-setup
-    fi
-    '
-    run_cmd "Restarting D-Bus" systemctl restart dbus
-}
-
 create_swapfile() {
     local swap_size="$1"
     local swap_file="/swapfile"
@@ -75,6 +66,7 @@ show_intro() {
     echo "  • Hostname and domain"
     if ! is_lxc; then
         echo "  • Network (DHCP or static IP)"
+        echo "  • Network interface naming"
     else
         echo "  • Network: managed by Proxmox (no internal config)"
     fi
@@ -83,6 +75,7 @@ show_intro() {
     if ! is_lxc; then
         echo "  • Optional: Swapfile"
     fi
+    echo "  • Hardens SSH (at the end)"
     echo ""
     if [[ -f "$CONFIG_FILE" ]]; then
         log_info "Config file detected: $CONFIG_FILE"
@@ -151,8 +144,44 @@ main() {
     # Network configuration — VM only (LXC managed by Proxmox)
     local network_type="" static_ip="" cidr="" gateway="" dns_servers="" enable_legacy_naming="n"
     local configure_network_flag="no"
+
     if ! is_lxc; then
         configure_network_flag="yes"
+
+        # Network interface naming (VM only)
+        local current_naming="predictable"
+        if check_using_predictable_names; then
+            log_info "Currently using predictable names (ens*, enp*)"
+            if [[ -n "${LEGACY_NAMING:-}" ]]; then
+                enable_legacy_naming="${LEGACY_NAMING}"
+                log_info "Using legacy naming from config: $enable_legacy_naming"
+            else
+                read -rp "Switch to legacy names (eth0, eth1)? (y/N): " enable_legacy_naming
+                enable_legacy_naming="${enable_legacy_naming:-n}"
+            fi
+        else
+            log_info "Using legacy interface names (eth0, eth1, etc.)"
+            if [[ -n "${LEGACY_NAMING:-}" ]]; then
+                enable_legacy_naming="${LEGACY_NAMING}"
+            else
+                read -rp "Keep legacy names (eth0, eth1)? (Y/n): " keep_legacy
+                keep_legacy="${keep_legacy:-y}"
+                if [[ "$keep_legacy" =~ ^[Yy]$ ]]; then
+                    enable_legacy_naming="y"
+                else
+                    enable_legacy_naming="n"
+                fi
+            fi
+        fi
+
+        # Apply interface naming change
+        if [[ "$enable_legacy_naming" == "y" ]] && ! check_legacy_naming_enabled; then
+            configure_network_naming "y"
+        elif [[ "$enable_legacy_naming" == "n" ]] && check_legacy_naming_enabled; then
+            configure_network_naming "n"
+        fi
+        echo ""
+
         if [[ "$net_manager" != "ifupdown" ]]; then
             log_warning "═══════════════════════════════════════════════════════"
             log_warning "  $net_manager is active on this system"
@@ -163,21 +192,6 @@ main() {
         fi
 
         if [[ "$configure_network_flag" == "yes" ]]; then
-            # Legacy naming check
-            if check_using_predictable_names; then
-                log_info "Currently using predictable names (ens*, enp*)"
-                if [[ -n "${LEGACY_NAMING:-}" ]]; then
-                    enable_legacy_naming="${LEGACY_NAMING}"
-                    log_info "Using legacy naming from config: $enable_legacy_naming"
-                else
-                    read -rp "Switch to legacy names (eth0, eth1)? (y/N): " enable_legacy_naming
-                    enable_legacy_naming="${enable_legacy_naming:-n}"
-                fi
-            else
-                log_info "Using legacy interface names (eth0, eth1, etc.)"
-            fi
-            echo ""
-
             # Network type
             if [[ -n "${NETWORK_TYPE:-}" ]]; then
                 network_type="${NETWORK_TYPE}"
@@ -340,6 +354,7 @@ main() {
         echo "  Graylog: $graylog_address"
     fi
     if ! is_lxc; then
+        echo "  Interface naming: $([[ "$enable_legacy_naming" =~ ^[Yy]$ ]] && echo "legacy (eth0)" || echo "predictable (ens*)")"
         if [[ "$configure_network_flag" == "yes" ]]; then
             echo "  Network: $network_type"
             if [[ "$network_type" == "static" ]]; then
@@ -363,15 +378,8 @@ main() {
         exit 0
     fi
 
-    # Execute
+    # Execute — non-disruptive first
     log_section "Initializing Instance"
-
-    regenerate_ssh_keys
-
-    # VM-only: regenerate machine-id
-    if ! is_lxc; then
-        regenerate_machine_id
-    fi
 
     set_hostname "$new_hostname" "$domain"
 
@@ -400,9 +408,17 @@ main() {
 
     start_services
 
+    # Disruptive operations LAST
+    log_section "Finalizing (disruptive operations)"
+
+    regenerate_ssh_keys
+
     # Lock down AFTER everything is configured and working
     harden_ssh
     secure_root_account
+
+    # Restart SSH with new keys and config
+    run_cmd "Restarting SSH service" systemctl restart ssh
 
     # Verification and summary
     verify_installation
@@ -411,6 +427,7 @@ main() {
     log_info "Initialization complete"
     echo ""
     log_warning "A reboot is recommended to apply all changes"
+    log_info "Note: SSH host keys have been regenerated — clear known_hosts entries"
     read -rp "Reboot now? (Y/n): " reboot_now
     reboot_now="${reboot_now:-y}"
     if [[ "$reboot_now" =~ ^[Yy]$ ]]; then

@@ -99,11 +99,10 @@ configure_optional_disk() {
     fi
     "
     run_cmd "Mounting filesystem" mount -a
-    log_success "Disk configured and mounted at $mount_point"
 }
 
 open_ssh_for_template() {
-    run_cmd "Ensuring SSH allows password login" bash -c '
+    run_cmd "Ensuring SSH allows password login (template mode)" bash -c '
     sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
     sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config
     systemctl restart ssh
@@ -125,7 +124,7 @@ show_intro() {
     echo ""
     echo -e "${GREEN}PHASE 1 — Template Preparation (this script):${NC}"
     echo "  • Creates generic, reusable template"
-    echo "  • Installs base packages and security hardening"
+    echo "  • Installs base packages"
     echo "  • Sets up time sync and automatic updates"
     if ! is_lxc; then
         echo "  • Configures DHCP for network visibility"
@@ -141,7 +140,7 @@ show_intro() {
         echo "  • Network (DHCP or static IP)"
     fi
     echo "  • Optionally installs: Zabbix, Graylog Sidecar"
-    echo "  • Regenerates SSH keys"
+    echo "  • Hardens SSH (locks down access)"
     echo ""
 }
 

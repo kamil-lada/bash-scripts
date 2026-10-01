@@ -177,14 +177,6 @@ validate_cidr() {
     return 0
 }
 
-validate_port() {
-    local port="$1"
-    if [[ ! "$port" =~ ^[0-9]+$ ]] || ((port < 1 || port > 65535)); then
-        return 1
-    fi
-    return 0
-}
-
 validate_graylog_url() {
     local url="$1"
     if [[ ! "$url" =~ ^https?://[^/]+.*/?$ ]]; then
@@ -206,12 +198,6 @@ load_config() {
         log_info "No config file, using interactive mode"
     fi
     return 0
-}
-
-check_package_in_repo() {
-    local package="$1"
-    apt-cache show "$package" &>/dev/null
-    return $?
 }
 
 ############################################################# TIME SYNC

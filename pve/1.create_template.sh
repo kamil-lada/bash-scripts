@@ -265,7 +265,6 @@ main() {
     upgrade_system
     configure_unattended_upgrades
     configure_shell_aliases
-    harden_ssh
     configure_time_sync "$timezone"
 
     # Network (VM only — LXC handled by Proxmox)

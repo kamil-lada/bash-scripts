@@ -1,6 +1,9 @@
 #!/bin/bash
-# Common library for template and init scripts
-# Source: source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+# Shared library for all scripts in this repository (apps/, pve/, ...)
+# Source: source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/common.sh"
+
+[[ -n "${_LIB_COMMON_LOADED:-}" ]] && return 0
+_LIB_COMMON_LOADED=1
 
 ############################################################# COLORS
 readonly RED='\033[0;31m'
@@ -103,7 +106,7 @@ is_lxc() {
     if grep -qa container /proc/1/environ 2>/dev/null; then
         return 0
     fi
-    if [[ -f /proc/self.cgroup ]] && grep -q "lxc" /proc/self.cgroup 2>/dev/null; then
+    if [[ -f /proc/self/cgroup ]] && grep -q "lxc" /proc/self/cgroup 2>/dev/null; then
         return 0
     fi
     return 1
@@ -875,4 +878,31 @@ show_final_summary() {
     echo ""
     echo "  Log file: ${LOGFILE:-N/A}"
     echo "  Config:   ${CONFIG_FILE:-N/A}"
+}
+
+############################################################# PROMPTS
+# ask "Question" "default" -> echoes answer (default when empty)
+ask() {
+    local question="$1" default="${2:-}" answer
+    if [[ -n "$default" ]]; then
+        read -rp "$(echo -e "${YELLOW}[?]${NC} $question [$default]: ")" answer
+    else
+        read -rp "$(echo -e "${YELLOW}[?]${NC} $question: ")" answer
+    fi
+    echo "${answer:-$default}"
+}
+
+# confirm "Question" [default y|n] -> 0 on yes
+confirm() {
+    local question="$1" default="${2:-n}" hint answer
+    [[ "$default" =~ ^[Yy]$ ]] && hint="Y/n" || hint="y/N"
+    read -rp "$(echo -e "${YELLOW}[?]${NC} $question [$hint]: ")" answer
+    [[ "${answer:-$default}" =~ ^[Yy]$ ]]
+}
+
+# confirm_typed "Question" "WORD" -> 0 only when user types WORD exactly
+confirm_typed() {
+    local question="$1" word="$2" answer
+    read -rp "$(echo -e "${RED}[!]${NC} $question Type '${word}' to continue: ")" answer
+    [[ "$answer" == "$word" ]]
 }

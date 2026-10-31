@@ -1,5 +1,7 @@
 #!/bin/bash
 # Instance Initialization Script (Phase 2) — handles both VM and LXC
+# Usage: sudo bash 2.initialize_for_usecase.sh [config_file]
+#        default config: /etc/instance_config if present, else pve/config
 set -euo pipefail
 
 # Source common library
@@ -8,7 +10,13 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 # Set log file
 LOGFILE="/var/log/initialize_for_usecase.log"
-CONFIG_FILE="/etc/instance_config"
+if [[ -n "${1:-}" ]]; then
+    CONFIG_FILE="$1"
+elif [[ -f /etc/instance_config ]]; then
+    CONFIG_FILE="/etc/instance_config"
+else
+    CONFIG_FILE="$SCRIPT_DIR/config"
+fi
 : > "$LOGFILE"
 
 trap 'echo -e "${RED}Initialization failed. Check $LOGFILE for details${NC}" >&2' ERR
@@ -17,37 +25,26 @@ trap 'echo -e "${RED}Initialization failed. Check $LOGFILE for details${NC}" >&2
 load_config "$CONFIG_FILE"
 
 ############################################################# VM-SPECIFIC FUNCTIONS
-check_legacy_naming_enabled() {
-    if grep -q "net.ifnames=0" /etc/default/grub 2>/dev/null; then
-        return 0
-    fi
-    return 1
-}
-
-check_using_predictable_names() {
-    local ifaces
-    ifaces=$(ls /sys/class/net 2>/dev/null | grep -vE '^(lo|docker|bond|vlan)' | head -1)
-    if [[ "$ifaces" =~ ^(ens|enp|enx|eno) ]]; then
-        return 0
-    fi
-    return 1
-}
-
 create_swapfile() {
     local swap_size="$1"
     local swap_file="/swapfile"
+    if [[ "$(swapon --show=NAME --noheadings 2>/dev/null)" == *"$swap_file"* ]]; then
+        log_info "Swapfile $swap_file already active — skipping"
+        return 0
+    fi
     run_cmd "Creating swapfile ($swap_size GB)" bash -c "
+    set -e
+    rm -f $swap_file
     fallocate -l ${swap_size}G $swap_file
     chmod 600 $swap_file
     mkswap $swap_file
     "
     run_cmd "Enabling swapfile" bash -c "
-    if ! grep -q '$swap_file' /etc/fstab; then
+    set -e
+    if ! grep -q '^$swap_file ' /etc/fstab; then
         echo '$swap_file none swap sw 0 0' >> /etc/fstab
     fi
-    if ! swapon --show | grep -q '$swap_file'; then
-        swapon $swap_file
-    fi
+    swapon $swap_file
     "
 }
 
@@ -63,15 +60,16 @@ show_intro() {
     echo -e "${YELLOW}Environment: $(is_lxc && echo "LXC Container" || echo "Virtual Machine")${NC}"
     echo ""
     log_info "This script will configure instance-specific settings:"
-    echo "  • Hostname and domain"
+    echo "  • Hostname, domain and timezone"
     if ! is_lxc; then
         echo "  • Network (DHCP or static IP)"
-        echo "  • Network interface naming"
+        echo "  • Optional: pin interface names to MAC (nic0, nic1, … like Proxmox VE 9)"
     else
         echo "  • Network: managed by Proxmox (no internal config)"
     fi
     echo "  • Optional: Zabbix Agent"
     echo "  • Optional: Graylog Sidecar"
+    echo "  • Optional: NFS shares (fstab)"
     if ! is_lxc; then
         echo "  • Optional: Swapfile"
     fi
@@ -90,7 +88,7 @@ main() {
     log_section "Current Status"
     log_info "Current hostname: $(hostname)"
     log_info "Current network:"
-    ip -br addr show | grep -v "^lo"
+    ip -br addr show | grep -v "^lo" || true
     echo ""
 
     local codename
@@ -104,276 +102,165 @@ main() {
 
     log_section "Instance Configuration"
 
-    # Hostname (from config or prompt)
-    local new_hostname
-    if [[ -n "${INSTANCE_HOSTNAME:-}" ]]; then
-        new_hostname="$INSTANCE_HOSTNAME"
-        log_info "Using hostname from config: $new_hostname"
-    else
-        while true; do
-            read -rp "Enter hostname (e.g., web01): " new_hostname
-            if [[ -z "$new_hostname" ]]; then
-                log_error "Hostname cannot be empty"
-                continue
-            fi
-            if ! validate_hostname "$new_hostname"; then
-                log_error "Invalid hostname format"
-                continue
-            fi
-            break
-        done
-    fi
-
-    # Domain
-    local domain
-    if [[ -n "${INSTANCE_DOMAIN:-}" ]]; then
-        domain="$INSTANCE_DOMAIN"
-        log_info "Using domain from config: $domain"
-    else
-        while true; do
-            read -rp "Enter domain (e.g., example.com) [localdomain]: " domain
-            domain="${domain:-localdomain}"
-            if validate_domain "$domain"; then
-                break
-            fi
-            log_error "Invalid domain format"
-        done
-    fi
+    get_opt INSTANCE_HOSTNAME "Hostname (e.g., web01)" "" validate_hostname
+    get_opt INSTANCE_DOMAIN "Domain (e.g., example.com)" "localdomain" validate_domain
+    # Default: keep the timezone chosen for the template
+    get_opt INSTANCE_TIMEZONE "Timezone" \
+        "$(timedatectl show -p Timezone --value 2>/dev/null || echo Europe/Warsaw)" validate_timezone
     echo ""
 
     # Network configuration — VM only (LXC managed by Proxmox)
-    local network_type="" static_ip="" cidr="" gateway="" dns_servers="" enable_legacy_naming="n"
-    local configure_network_flag="no"
+    local configure_network_flag="n"
+    PIN_INTERFACES="${PIN_INTERFACES:-}"
+    NETWORK_TYPE="${NETWORK_TYPE:-}"
+    NETWORK_TYPE="${NETWORK_TYPE,,}"
 
     if ! is_lxc; then
-        configure_network_flag="yes"
-
-        # Network interface naming (VM only)
-        local current_naming="predictable"
-        if check_using_predictable_names; then
-            log_info "Currently using predictable names (ens*, enp*)"
-            if [[ -n "${LEGACY_NAMING:-}" ]]; then
-                enable_legacy_naming="${LEGACY_NAMING}"
-                log_info "Using legacy naming from config: $enable_legacy_naming"
-            else
-                read -rp "Switch to legacy names (eth0, eth1)? (y/N): " enable_legacy_naming
-                enable_legacy_naming="${enable_legacy_naming:-n}"
-            fi
-        else
-            log_info "Using legacy interface names (eth0, eth1, etc.)"
-            if [[ -n "${LEGACY_NAMING:-}" ]]; then
-                enable_legacy_naming="${LEGACY_NAMING}"
-            else
-                read -rp "Keep legacy names (eth0, eth1)? (Y/n): " keep_legacy
-                keep_legacy="${keep_legacy:-y}"
-                if [[ "$keep_legacy" =~ ^[Yy]$ ]]; then
-                    enable_legacy_naming="y"
-                else
-                    enable_legacy_naming="n"
-                fi
-            fi
-        fi
-
-        # Apply interface naming change
-        if [[ "$enable_legacy_naming" == "y" ]] && ! check_legacy_naming_enabled; then
-            configure_network_naming "y"
-        elif [[ "$enable_legacy_naming" == "n" ]] && check_legacy_naming_enabled; then
-            configure_network_naming "n"
-        fi
-        echo ""
-
         if [[ "$net_manager" != "ifupdown" ]]; then
             log_warning "═══════════════════════════════════════════════════════"
             log_warning "  $net_manager is active on this system"
             log_warning "  This script only configures ifupdown (native)"
             log_warning "  Network configuration will be skipped"
             log_warning "═══════════════════════════════════════════════════════"
-            configure_network_flag="no"
-        fi
-
-        if [[ "$configure_network_flag" == "yes" ]]; then
-            # Network type
-            if [[ -n "${NETWORK_TYPE:-}" ]]; then
-                network_type="${NETWORK_TYPE}"
-                log_info "Using network type from config: $network_type"
-            else
-                while true; do
-                    read -rp "Choose IP assignment method (dhcp/static) [dhcp]: " network_type
-                    network_type="${network_type:-dhcp}"
-                    network_type=$(echo "$network_type" | tr '[:upper:]' '[:lower:]')
-                    if [[ "$network_type" == "dhcp" || "$network_type" == "static" ]]; then
-                        break
-                    fi
-                    log_error "Please enter 'dhcp' or 'static'"
-                done
+            PIN_INTERFACES="n"
+        else
+            configure_network_flag="y"
+            log_info "Physical interfaces: $(list_physical_ifaces | xargs)"
+            get_yn PIN_INTERFACES "Pin interface names to MAC (nic0, nic1, … like Proxmox VE 9)?" n
+            if [[ "$PIN_INTERFACES" == "y" ]]; then
+                get_opt PIN_PREFIX "Interface name prefix" "nic" validate_pin_prefix
             fi
 
-            if [[ "$network_type" == "static" ]]; then
-                if [[ -n "${STATIC_IP:-}" ]]; then
-                    static_ip="$STATIC_IP"
-                    cidr="${CIDR_PREFIX:-24}"
-                    gateway="${GATEWAY_IP:-}"
-                    dns_servers="${DNS_SERVERS:-$gateway 9.9.9.9}"
-                    log_info "Using static IP from config: $static_ip/$cidr"
-                else
-                    while true; do
-                        read -rp "IP address (e.g., 192.168.1.100): " static_ip
-                        if validate_ip "$static_ip"; then
-                            break
-                        fi
-                        log_error "Invalid IP format"
-                    done
-                    while true; do
-                        read -rp "Network prefix [24]: " cidr
-                        cidr="${cidr:-24}"
-                        if validate_cidr "$cidr"; then
-                            break
-                        fi
-                        log_error "Invalid CIDR"
-                    done
-                    local default_gateway
-                    default_gateway=$(echo "$static_ip" | sed 's/\.[0-9]*$/\.1/')
-                    read -rp "Gateway [$default_gateway]: " gateway
-                    gateway="${gateway:-$default_gateway}"
-                    dns_servers="$gateway 9.9.9.9"
-                fi
+            get_opt NETWORK_TYPE "IP assignment method (dhcp/static)" "dhcp" validate_network_type
+            if [[ "$NETWORK_TYPE" == "static" ]]; then
+                get_opt STATIC_IP "IP address (e.g., 192.168.1.100)" "" validate_ip
+                get_opt CIDR_PREFIX "Network prefix" "24" validate_cidr
+                get_opt GATEWAY_IP "Gateway" "${STATIC_IP%.*}.1" validate_ip
+                get_opt DNS_SERVERS "DNS servers (space separated)" "$GATEWAY_IP 9.9.9.9" validate_ip_list
             fi
         fi
     else
+        PIN_INTERFACES="n"
         log_info "LXC detected — Proxmox manages network configuration"
-        log_info "To set static IP, use Proxmox: pct set <vmid> --ip <ip>/<cidr>"
-        if [[ -n "${NETWORK_TYPE:-}" && "${NETWORK_TYPE}" == "static" ]]; then
+        log_info "To set static IP, use Proxmox: pct set <vmid> --net0 ...,ip=<ip>/<cidr>,gw=<gw>"
+        if [[ "$NETWORK_TYPE" == "static" ]]; then
             log_warning "Static IP found in config but LXC network is managed by Proxmox"
-            log_warning "Configure IP via Proxmox instead: pct set <vmid> --ip ${STATIC_IP:-<ip>}/${CIDR_PREFIX:-24}"
         fi
     fi
     echo ""
 
     # Zabbix
-    local install_zabbix="n" zabbix_address="" zabbix_port=""
-    if [[ -n "${INSTALL_ZABBIX:-}" && "${INSTALL_ZABBIX}" =~ ^[Yy]$ ]]; then
-        install_zabbix="y"
-        zabbix_address="${ZABBIX_ADDRESS:-}"
-        zabbix_port="${ZABBIX_PORT:-10051}"
-        log_info "Zabbix from config: $zabbix_address:$zabbix_port"
-    else
-        read -rp "Install Zabbix Agent 2? (y/N): " install_zabbix
-        install_zabbix="${install_zabbix:-n}"
-    fi
-
-    if [[ "$install_zabbix" =~ ^[Yy]$ ]] && [[ -z "$zabbix_address" ]]; then
-        while true; do
-            read -rp "Zabbix server address: " zabbix_address
-            [[ -n "$zabbix_address" ]] && break
-            log_error "Zabbix address cannot be empty"
-        done
-        read -rp "Zabbix server port [10051]: " zabbix_port
-        zabbix_port="${zabbix_port:-10051}"
+    get_yn INSTALL_ZABBIX "Install Zabbix Agent 2?" n
+    if [[ "$INSTALL_ZABBIX" == "y" ]]; then
+        get_opt ZABBIX_ADDRESS "Zabbix server address"
+        get_opt ZABBIX_PORT "Zabbix server port" "10051" validate_port
+        check_network_connectivity || true
     fi
     echo ""
 
     # Graylog
-    local install_graylog="n" graylog_address="" graylog_api_token="" graylog_tags=""
-    if [[ -n "${INSTALL_GRAYLOG:-}" && "${INSTALL_GRAYLOG}" =~ ^[Yy]$ ]]; then
-        install_graylog="y"
-        graylog_address="${GRAYLOG_ADDRESS:-}"
-        graylog_api_token="${GRAYLOG_API_TOKEN:-}"
-        graylog_tags="${GRAYLOG_TAGS:-linux}"
-        log_info "Graylog from config: $graylog_address"
-    else
-        read -rp "Install Graylog Sidecar? (y/N): " install_graylog
-        install_graylog="${install_graylog:-n}"
-    fi
-
-    if [[ "$install_graylog" =~ ^[Yy]$ ]] && [[ -z "$graylog_address" ]]; then
-        while true; do
-            read -rp "Graylog server URL (must end with /api/): " graylog_address
-            if [[ -n "$graylog_address" ]]; then
-                if [[ ! "$graylog_address" =~ /api/?$ ]]; then
-                    if [[ "$graylog_address" =~ /$ ]]; then
-                        graylog_address="${graylog_address}api/"
-                    else
-                        graylog_address="${graylog_address}/api/"
-                    fi
-                fi
-                if validate_graylog_url "$graylog_address"; then
-                    break
-                fi
-            fi
-            log_error "Invalid URL"
-        done
-        while true; do
-            read -rp "Graylog API token: " graylog_api_token
-            [[ -n "$graylog_api_token" ]] && break
-            log_error "API token cannot be empty"
-        done
-        read -rp "Additional tags [linux]: " graylog_tags
-        graylog_tags="${graylog_tags:-linux}"
+    get_yn INSTALL_GRAYLOG "Install Graylog Sidecar?" n
+    if [[ "$INSTALL_GRAYLOG" == "y" ]]; then
+        get_opt GRAYLOG_ADDRESS "Graylog server URL (e.g., https://graylog:9000/api/)" "" validate_url
+        # Sidecar needs the API endpoint
+        [[ "$GRAYLOG_ADDRESS" =~ /api/?$ ]] || GRAYLOG_ADDRESS="${GRAYLOG_ADDRESS%/}/api/"
+        get_opt GRAYLOG_API_TOKEN "Graylog API token"
+        get_opt GRAYLOG_TAGS "Tags (comma separated)" "linux"
+        get_yn GRAYLOG_TLS_SKIP_VERIFY "Skip TLS certificate verification (self-signed)?" n
     fi
     echo ""
 
     # VM-only: Swap
-    local create_swap="n" swap_size="1"
+    CREATE_SWAP="${CREATE_SWAP:-}"
     if ! is_lxc; then
-        if [[ -n "${CREATE_SWAP:-}" && "${CREATE_SWAP}" =~ ^[Yy]$ ]]; then
-            create_swap="y"
-            swap_size="${SWAP_SIZE_GB:-1}"
-            log_info "Swap from config: ${swap_size}GB"
-        else
-            read -rp "Create swapfile? (y/N): " create_swap
-            create_swap="${create_swap:-n}"
-        fi
-
-        if [[ "$create_swap" =~ ^[Yy]$ ]] && [[ -z "${SWAP_SIZE_GB:-}" ]]; then
-            read -rp "Swapfile size in GB [1]: " swap_size
-            swap_size="${swap_size:-1}"
+        get_yn CREATE_SWAP "Create swapfile?" n
+        if [[ "$CREATE_SWAP" == "y" ]]; then
+            get_opt SWAP_SIZE_GB "Swapfile size in GB" "1" validate_positive_int
         fi
         echo ""
+    else
+        CREATE_SWAP="n"
     fi
 
-    # Bash scripts repo
-    local clone_repo="n"
-    if [[ -n "${CLONE_REPO:-}" && "${CLONE_REPO}" =~ ^[Yy]$ ]]; then
-        clone_repo="y"
-    else
-        read -rp "Clone bash-scripts repository? (y/N): " clone_repo
-        clone_repo="${clone_repo:-n}"
+    # NFS shares (interactive, like SSH keys in phase 1)
+    local -a nfs_shares=() nfs_mounts=()
+    local line share mount_point name
+    if is_lxc; then
+        log_warning "LXC: NFS mounts need a privileged CT with the 'nfs' feature enabled in Proxmox"
     fi
+    log_info "NFS shares to mount — 'server:/export [/mount/point]', one per line, empty line to finish:"
+    while true; do
+        read -r line
+        [[ -z "$line" ]] && break
+        read -r share mount_point _ <<< "$line"
+        if ! validate_nfs_share "$share"; then
+            log_error "Invalid share '$share' — use server:/export"
+            continue
+        fi
+        if [[ -z "${mount_point:-}" ]]; then
+            name="${share#*:}"; name="${name%/}"; name="${name##*/}"
+            mount_point="/mnt/${name:-nfs}"
+        fi
+        if [[ "$mount_point" != /* || "$mount_point" == "/" ]]; then
+            log_error "Invalid mount point '$mount_point' — use an absolute path"
+            continue
+        fi
+        if [[ " ${nfs_mounts[*]} " == *" $mount_point "* ]]; then
+            log_error "Mount point $mount_point already used above"
+            continue
+        fi
+        nfs_shares+=("$share")
+        nfs_mounts+=("$mount_point")
+        echo "  Share ${#nfs_shares[@]} added: $share -> $mount_point"
+    done
+    echo ""
+
+    # Bash scripts repo
+    get_yn CLONE_REPO "Clone/update bash-scripts repository?" n
     echo ""
 
     # Summary
     log_section "Configuration Summary"
     echo "  Environment: $(is_lxc && echo "LXC" || echo "VM")"
-    echo "  Hostname: $new_hostname"
-    echo "  Domain: $domain"
-    echo "  FQDN: $new_hostname.$domain"
-    if [[ "$install_zabbix" =~ ^[Yy]$ ]]; then
-        echo "  Zabbix: $zabbix_address:$zabbix_port"
+    echo "  Hostname: $INSTANCE_HOSTNAME"
+    echo "  Domain: $INSTANCE_DOMAIN"
+    echo "  FQDN: $INSTANCE_HOSTNAME.$INSTANCE_DOMAIN"
+    echo "  Timezone: $INSTANCE_TIMEZONE"
+    if [[ "$INSTALL_ZABBIX" == "y" ]]; then
+        echo "  Zabbix: $ZABBIX_ADDRESS:$ZABBIX_PORT"
     fi
-    if [[ "$install_graylog" =~ ^[Yy]$ ]]; then
-        echo "  Graylog: $graylog_address"
+    if [[ "$INSTALL_GRAYLOG" == "y" ]]; then
+        echo "  Graylog: $GRAYLOG_ADDRESS (tags: $GRAYLOG_TAGS)"
     fi
     if ! is_lxc; then
-        echo "  Interface naming: $([[ "$enable_legacy_naming" =~ ^[Yy]$ ]] && echo "legacy (eth0)" || echo "predictable (ens*)")"
-        if [[ "$configure_network_flag" == "yes" ]]; then
-            echo "  Network: $network_type"
-            if [[ "$network_type" == "static" ]]; then
-                echo "    IP: $static_ip/$cidr"
-                echo "    Gateway: $gateway"
+        if [[ "$configure_network_flag" == "y" ]]; then
+            if [[ "$PIN_INTERFACES" == "y" ]]; then
+                echo "  Interface names: pinned (${PIN_PREFIX}0, ${PIN_PREFIX}1, …)"
+            else
+                echo "  Interface names: unchanged"
+            fi
+            echo "  Network: $NETWORK_TYPE"
+            if [[ "$NETWORK_TYPE" == "static" ]]; then
+                echo "    IP: $STATIC_IP/$CIDR_PREFIX"
+                echo "    Gateway: $GATEWAY_IP"
+                echo "    DNS: $DNS_SERVERS"
             fi
         else
             echo "  Network: Skipped (other network manager active)"
         fi
-        if [[ "$create_swap" =~ ^[Yy]$ ]]; then
-            echo "  Swapfile: ${swap_size}GB"
+        if [[ "$CREATE_SWAP" == "y" ]]; then
+            echo "  Swapfile: ${SWAP_SIZE_GB}GB"
         fi
     else
         echo "  Network: Managed by Proxmox"
     fi
+    local i
+    for i in "${!nfs_shares[@]}"; do
+        echo "  NFS: ${nfs_shares[$i]} -> ${nfs_mounts[$i]}"
+    done
     echo ""
 
-    read -rp "Proceed with initialization? (y/N): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    if ! confirm "Proceed with initialization?" n; then
         log_info "Aborted by user"
         exit 0
     fi
@@ -381,28 +268,44 @@ main() {
     # Execute — non-disruptive first
     log_section "Initializing Instance"
 
-    set_hostname "$new_hostname" "$domain"
+    set_hostname "$INSTANCE_HOSTNAME" "$INSTANCE_DOMAIN"
 
-    # Network (VM only — LXC handled by Proxmox)
-    if [[ "$configure_network_flag" == "yes" ]]; then
-        configure_network "$network_type" "$static_ip" "$cidr" "$gateway" "$dns_servers" "$enable_legacy_naming"
+    # Network (VM only) — takes effect after reboot
+    if [[ "$PIN_INTERFACES" == "y" ]]; then
+        pin_interface_names "$PIN_PREFIX"
+    fi
+    if [[ "$configure_network_flag" == "y" ]]; then
+        if [[ "$NETWORK_TYPE" == "static" ]]; then
+            configure_network static "$STATIC_IP" "$CIDR_PREFIX" "$GATEWAY_IP" "$DNS_SERVERS"
+        else
+            configure_network dhcp
+        fi
     fi
 
-    configure_time_sync "${INSTANCE_TIMEZONE:-Europe/Warsaw}"
+    configure_time_sync "$INSTANCE_TIMEZONE"
 
-    if [[ "$install_zabbix" =~ ^[Yy]$ ]]; then
-        install_zabbix "$codename" "$zabbix_address" "$zabbix_port" "$new_hostname"
+    if [[ "$INSTALL_ZABBIX" == "y" ]]; then
+        install_zabbix "$codename" "$ZABBIX_ADDRESS" "$ZABBIX_PORT" "$INSTANCE_HOSTNAME"
     fi
 
-    if [[ "$install_graylog" =~ ^[Yy]$ ]]; then
-        install_graylog "$graylog_address" "$graylog_api_token" "$graylog_tags"
+    if [[ "$INSTALL_GRAYLOG" == "y" ]]; then
+        install_graylog "$GRAYLOG_ADDRESS" "$GRAYLOG_API_TOKEN" "$GRAYLOG_TAGS" "$GRAYLOG_TLS_SKIP_VERIFY" || true
     fi
 
-    if ! is_lxc && [[ "$create_swap" =~ ^[Yy]$ ]]; then
-        create_swapfile "$swap_size"
+    if [[ "$CREATE_SWAP" == "y" ]]; then
+        create_swapfile "$SWAP_SIZE_GB"
     fi
 
-    if [[ "$clone_repo" =~ ^[Yy]$ ]]; then
+    if (( ${#nfs_shares[@]} > 0 )); then
+        if ! command -v mount.nfs &>/dev/null; then
+            run_cmd "Installing nfs-common" env DEBIAN_FRONTEND=noninteractive apt-get install -y nfs-common
+        fi
+        for i in "${!nfs_shares[@]}"; do
+            add_nfs_mount "${nfs_shares[$i]}" "${nfs_mounts[$i]}"
+        done
+    fi
+
+    if [[ "$CLONE_REPO" == "y" ]]; then
         clone_bash_scripts
     fi
 
@@ -413,24 +316,30 @@ main() {
 
     regenerate_ssh_keys
 
-    # Lock down AFTER everything is configured and working
-    harden_ssh
-    secure_root_account
+    # Lock down AFTER everything is configured and working.
+    # Root is only locked when key-only SSH is in place — otherwise no way in.
+    if harden_ssh; then
+        secure_root_account
+    else
+        log_warning "SSH not hardened and root not locked — fix SSH keys and re-run"
+    fi
 
-    # Restart SSH with new keys and config
+    # Single restart: new host keys + hardening
     run_cmd "Restarting SSH service" systemctl restart ssh
 
-    # Verification and summary
-    verify_installation
+    # Verification and summary (failures are reported, not fatal)
+    verify_installation || log_warning "Check the failures above"
     show_final_summary
 
     log_info "Initialization complete"
     echo ""
-    log_warning "A reboot is recommended to apply all changes"
+    if [[ "$configure_network_flag" == "y" ]]; then
+        log_warning "Network changes are applied on REBOOT — reboot required"
+    else
+        log_warning "A reboot is recommended to apply all changes"
+    fi
     log_info "Note: SSH host keys have been regenerated — clear known_hosts entries"
-    read -rp "Reboot now? (Y/n): " reboot_now
-    reboot_now="${reboot_now:-y}"
-    if [[ "$reboot_now" =~ ^[Yy]$ ]]; then
+    if confirm "Reboot now?" y; then
         sync
         sleep 3
         systemctl reboot

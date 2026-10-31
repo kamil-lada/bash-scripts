@@ -38,40 +38,33 @@ log_section() {
     echo ""
 }
 
-run_cmd() {
-    local desc="$1"
-    shift
+# _run fatal|continue "Description" cmd args... — output goes to $LOGFILE
+_run() {
+    local mode="$1" desc="$2"
+    shift 2
+    local log="${LOGFILE:-/dev/null}"
     printf "%-60s" "$desc..."
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running: $desc" >> "${LOGFILE:-/dev/null}"
-    if "$@" >>"${LOGFILE:-/dev/null}" 2>&1; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running: $desc" >> "$log"
+    if "$@" >>"$log" 2>&1; then
         echo -e "${GREEN}OK${NC}"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $desc" >> "${LOGFILE:-/dev/null}"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $desc" >> "$log"
         return 0
-    else
+    fi
+    if [[ "$mode" == "fatal" ]]; then
         echo -e "${RED}ERROR${NC}"
         log_error "Failed: $desc"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED: $desc" >> "${LOGFILE:-/dev/null}"
-        tail -n 50 "${LOGFILE:-/dev/null}" | sed 's/^/  /' >&2
-        return 1
-    fi
-}
-
-run_cmd_continue() {
-    local desc="$1"
-    shift
-    printf "%-60s" "$desc..."
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running: $desc" >> "${LOGFILE:-/dev/null}"
-    if "$@" >>"${LOGFILE:-/dev/null}" 2>&1; then
-        echo -e "${GREEN}OK${NC}"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] SUCCESS: $desc" >> "${LOGFILE:-/dev/null}"
-        return 0
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED: $desc" >> "$log"
+        tail -n 50 "$log" | sed 's/^/  /' >&2
     else
         echo -e "${YELLOW}SKIPPED${NC}"
         log_warning "Failed (continuing): $desc"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED (skipped): $desc" >> "${LOGFILE:-/dev/null}"
-        return 1
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] FAILED (skipped): $desc" >> "$log"
     fi
+    return 1
 }
+
+run_cmd()          { _run fatal "$@"; }
+run_cmd_continue() { _run continue "$@"; }
 
 ############################################################# SYSTEM CHECKS
 check_root() {
@@ -99,17 +92,24 @@ detect_debian_version() {
     echo "${VERSION_CODENAME:-bookworm}"
 }
 
+# Detected once, then cached
 is_lxc() {
-    if command -v systemd-detect-virt &>/dev/null; then
-        systemd-detect-virt --container &>/dev/null && return 0
+    if [[ -z "${_IS_LXC:-}" ]]; then
+        _IS_LXC=n
+        if command -v systemd-detect-virt &>/dev/null && systemd-detect-virt --container &>/dev/null; then
+            _IS_LXC=y
+        elif grep -qa container /proc/1/environ 2>/dev/null; then
+            _IS_LXC=y
+        elif grep -q "lxc" /proc/self/cgroup 2>/dev/null; then
+            _IS_LXC=y
+        fi
     fi
-    if grep -qa container /proc/1/environ 2>/dev/null; then
-        return 0
-    fi
-    if [[ -f /proc/self/cgroup ]] && grep -q "lxc" /proc/self/cgroup 2>/dev/null; then
-        return 0
-    fi
-    return 1
+    [[ "$_IS_LXC" == "y" ]]
+}
+
+# 0 if the systemd unit file exists (no pipe: grep -q + pipefail gives false negatives)
+unit_exists() {
+    [[ -n "$(systemctl list-unit-files --no-legend "$1" 2>/dev/null)" ]]
 }
 
 check_network_manager() {
@@ -140,14 +140,6 @@ check_network_connectivity() {
     return 1
 }
 
-check_dns_resolution() {
-    local test_host="deb.debian.org"
-    if getent hosts "$test_host" &>/dev/null; then
-        return 0
-    fi
-    return 1
-}
-
 check_disk_space() {
     local min_free_mb="${1:-500}"
     local available_mb
@@ -162,58 +154,65 @@ check_disk_space() {
 
 ############################################################# VALIDATION
 validate_hostname() {
-    local hostname="$1"
-    if [[ ! "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
-        return 1
-    fi
-    return 0
+    [[ "$1" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]
 }
 
 validate_domain() {
-    local domain="$1"
-    if [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
-        return 0
-    elif [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-        return 0
-    fi
-    return 1
+    [[ "$1" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]
 }
 
 validate_ip() {
-    local ip="$1"
-    if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        return 1
-    fi
-    local IFS='.'
-    local -a octets=($ip)
+    local ip="$1" octet
+    [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
+    local -a octets
+    IFS='.' read -ra octets <<< "$ip"
     for octet in "${octets[@]}"; do
-        if ((octet > 255)); then
-            return 1
-        fi
+        (( 10#$octet <= 255 )) || return 1
     done
-    return 0
+}
+
+# Space-separated list of IPs
+validate_ip_list() {
+    local ip
+    [[ -n "$1" ]] || return 1
+    for ip in $1; do
+        validate_ip "$ip" || return 1
+    done
 }
 
 validate_cidr() {
-    local cidr="$1"
-    if [[ ! "$cidr" =~ ^[0-9]+$ ]]; then
-        return 1
-    fi
-    if ((cidr < 1 || cidr > 32)); then
-        return 1
-    fi
-    return 0
+    [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 32 ))
 }
 
-validate_graylog_url() {
-    local url="$1"
-    if [[ ! "$url" =~ ^https?://[^/]+.*/?$ ]]; then
-        return 1
-    fi
-    if [[ ! "$url" =~ /api/?$ ]]; then
-        return 1
-    fi
-    return 0
+validate_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
+validate_positive_int() {
+    [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 ))
+}
+
+validate_network_type() {
+    [[ "$1" == "dhcp" || "$1" == "static" ]]
+}
+
+validate_timezone() {
+    [[ -f "/usr/share/zoneinfo/$1" ]]
+}
+
+# server:/export (hostname or IPv4)
+validate_nfs_share() {
+    [[ "$1" =~ ^[A-Za-z0-9._-]+:/[^[:space:]]*$ ]]
+}
+
+validate_url() {
+    [[ "$1" =~ ^https?://[^/[:space:]]+ ]]
+}
+
+# Interface name prefix: lowercase, short, not the kernel's own "eth"
+# (same reason Proxmox VE uses "nic")
+validate_pin_prefix() {
+    [[ "$1" =~ ^[a-z]{1,8}$ && "$1" != "eth" ]]
 }
 
 ############################################################# CONFIG
@@ -238,217 +237,142 @@ configure_time_sync() {
         log_info "LXC detected — checking host time sync..."
         if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q "yes"; then
             log_info "Host time sync active (LXC inherits host clock)"
-            return 0
         else
             log_warning "Host time sync not detected — container may drift"
-            return 0
         fi
+        return 0
     fi
 
     # VM: try timesyncd first, then chrony
-    if systemctl list-unit-files 2>/dev/null | grep -q systemd-timesyncd; then
+    if unit_exists systemd-timesyncd.service; then
         run_cmd "Enabling NTP via timesyncd" timedatectl set-ntp true
-        run_cmd_continue "Restarting timesyncd" systemctl restart systemd-timesyncd
+        run_cmd_continue "Restarting timesyncd" systemctl restart systemd-timesyncd || true
         if systemctl is-active --quiet systemd-timesyncd 2>/dev/null; then
             return 0
         fi
     fi
 
     if ! command -v chronyd &>/dev/null; then
-        run_cmd "Installing chrony" bash -c '
-        DEBIAN_FRONTEND=noninteractive apt-get install -y chrony
-        '
+        run_cmd "Installing chrony" env DEBIAN_FRONTEND=noninteractive apt-get install -y chrony
     fi
 
-    run_cmd_continue "Enabling chrony" systemctl enable chrony
-    run_cmd_continue "Starting chrony" systemctl start chrony
+    run_cmd_continue "Enabling and starting chrony" systemctl enable --now chrony || true
 }
 
 ############################################################# NETWORK
-configure_network() {
-    local network_type="$1"
-    local static_ip="$2"
-    local cidr="$3"
-    local gateway="$4"
-    local dns_servers="$5"
-    local use_legacy="${6:-n}"
+readonly PIN_LINK_DIR="/usr/local/lib/systemd/network"
 
-    # LXC: Proxmox manages network — skip internal configuration
-    if is_lxc; then
-        log_info "LXC detected — Proxmox manages network configuration"
-        if [[ "$network_type" == "static" ]]; then
-            log_warning "Static IP requested but LXC network is managed by Proxmox"
-            log_warning "To set static IP, use Proxmox: pct set <vmid> --ip ${static_ip}/${cidr} --gw ${gateway}"
-        fi
-        log_info "Skipping internal network configuration"
-        return 0
-    fi
-
-    # VM: configure via ifupdown
-    local backup_file="/etc/network/interfaces.bak.$(date +%s)"
-
-    run_cmd "Backing up network config" bash -c "
-    if [[ -f /etc/network/interfaces ]]; then
-        cp /etc/network/interfaces '$backup_file'
-    fi
-    "
-
-    if [[ "$use_legacy" =~ ^[Yy]$ ]]; then
-        run_cmd "Configuring legacy network naming" bash -c '
-        if ! grep -q "net.ifnames=0" /etc/default/grub; then
-            sed -i "s/GRUB_CMDLINE_LINUX=\"\(.*\)\"/GRUB_CMDLINE_LINUX=\"\1 net.ifnames=0 biosdevname=0\"/" /etc/default/grub
-            update-grub
-        fi
-        '
-        log_info "Interface names will change to eth0, eth1 after reboot"
-    fi
-
-    # Determine interface names
-    local all_interfaces primary_iface
-    if [[ "$use_legacy" =~ ^[Yy]$ ]]; then
-        local iface_count
-        iface_count=$(ls /sys/class/net 2>/dev/null | grep -vE '^(lo|docker|bond|vlan)' | wc -l)
-        all_interfaces=$(seq 0 $((iface_count - 1)) | sed 's/^/eth/')
-        primary_iface="eth0"
-    else
-        all_interfaces=$(ls /sys/class/net 2>/dev/null | grep -vE '^(lo|docker|bond|vlan)' | sort || true)
-        primary_iface=$(echo "$all_interfaces" | head -1)
-    fi
-
-    if [[ -z "$all_interfaces" ]]; then
-        log_error "No network interfaces found!"
-        return 1
-    fi
-
-    # Log configuration
-    {
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Network Configuration Details:"
-        echo "  All interfaces: $all_interfaces"
-        echo "  Primary interface: $primary_iface"
-        echo "  Network type: $network_type"
-        echo "  Backup file: $backup_file"
-    } >> "${LOGFILE:-/dev/null}"
-
-    if [[ "$network_type" == "static" ]]; then
-        {
-            echo "  Static IP: $static_ip/$cidr"
-            echo "  Gateway: $gateway"
-            echo "  DNS: $dns_servers"
-        } >> "${LOGFILE:-/dev/null}"
-
-        run_cmd "Configuring static IP" bash -c "
-        cat > /etc/network/interfaces <<'INNEREOF'
-# Network configuration — Static IP
-source /etc/network/interfaces.d/*
-auto lo
-iface lo inet loopback
-INNEREOF
-cat >> /etc/network/interfaces <<EOF
-
-# Primary interface with static IP
-auto $primary_iface
-iface $primary_iface inet static
-    address $static_ip/$cidr
-    gateway $gateway
-    dns-nameservers $dns_servers
-EOF
-for iface in $all_interfaces; do
-    if [[ \"\$iface\" != \"\$primary_iface\" ]]; then
-        cat >> /etc/network/interfaces <<EOF
-
-# Additional interface
-auto \$iface
-iface \$iface inet dhcp
-EOF
-    fi
-done
-"
-    else
-        run_cmd "Configuring DHCP" bash -c "
-        cat > /etc/network/interfaces <<'INNEREOF'
-# Network configuration — DHCP
-source /etc/network/interfaces.d/*
-auto lo
-iface lo inet loopback
-INNEREOF
-for iface in $all_interfaces; do
-    cat >> /etc/network/interfaces <<EOF
-
-# Interface \$iface
-auto \$iface
-iface \$iface inet dhcp
-EOF
-done
-"
-    fi
-
-    # Ensure DNS is configured for static
-    if [[ "$network_type" == "static" ]]; then
-        local resolv_backup="/etc/resolv.conf.bak.$(date +%s)"
-        run_cmd "Backing up DNS config" bash -c "
-        if [[ -f /etc/resolv.conf ]]; then
-            cp /etc/resolv.conf '$resolv_backup'
-        fi
-        "
-        run_cmd "Configuring DNS resolvers" bash -c "
-        cat > /etc/resolv.conf <<EOF
-nameserver $gateway
-nameserver $(echo $dns_servers | awk '{print $NF}')
-EOF
-"
-    fi
-
-    # Test connectivity — revert if broken
-    log_info "Testing network connectivity..."
-    sleep 3  # Give network time to settle
-
-    if ! check_network_connectivity; then
-        log_warning "Network connectivity broken — reverting to previous config"
-
-        # Revert network config
-        if [[ -f "$backup_file" ]]; then
-            run_cmd "Reverting network configuration" bash -c "
-            cp '$backup_file' /etc/network/interfaces
-            "
-        fi
-
-        # Revert DNS if it was changed
-        if [[ "$network_type" == "static" && -f "$resolv_backup" ]]; then
-            run_cmd "Reverting DNS configuration" bash -c "
-            cp '$resolv_backup' /etc/resolv.conf
-            "
-        fi
-
-        log_warning "Network configuration reverted"
-        return 1
-    fi
+# Physical NICs only (have a backing device) — skips lo, veth, bridges, bonds, vlans, docker...
+list_physical_ifaces() {
+    local dev
+    for dev in /sys/class/net/*; do
+        [[ -e "$dev/device" ]] && basename "$dev"
+    done | sort
 }
 
-configure_network_naming() {
-    local legacy_naming="$1"
+# Pin NIC names to MAC addresses with systemd .link files, the way Proxmox VE 9
+# (pve-network-interface-pinning) does it: <prefix>0, <prefix>1, ...
+# Must run AFTER cloning — clones get new MAC addresses.
+# Sets global PINNED_NAMES[old]=new for configure_network. Effective after reboot.
+declare -gA PINNED_NAMES=()
+pin_interface_names() {
+    local prefix="$1" iface mac idx=0
+    run_cmd "Removing previous interface pins" bash -c "mkdir -p '$PIN_LINK_DIR' && rm -f '$PIN_LINK_DIR'/50-pin-*.link"
+    for iface in $(list_physical_ifaces); do
+        mac=$(cat "/sys/class/net/$iface/address")
+        PINNED_NAMES[$iface]="${prefix}${idx}"
+        run_cmd "Pinning $iface ($mac) -> ${prefix}${idx}" bash -c "
+        cat > '$PIN_LINK_DIR/50-pin-${prefix}${idx}.link' <<EOF
+# Managed by bash-scripts (2.initialize_for_usecase.sh)
+[Match]
+MACAddress=$mac
+Type=ether
+
+[Link]
+Name=${prefix}${idx}
+EOF
+        "
+        idx=$((idx + 1))
+    done
+    # Renames may also happen in the initramfs
+    run_cmd "Updating initramfs" update-initramfs -u
+}
+
+# Writes /etc/network/interfaces (ifupdown). Applied on next reboot — applying live
+# would cut the SSH session running this script.
+# configure_network dhcp|static [ip cidr gateway "dns1 dns2"]
+configure_network() {
+    local network_type="$1" static_ip="${2:-}" cidr="${3:-}" gateway="${4:-}" dns_servers="${5:-}"
 
     if is_lxc; then
-        log_info "LXC — always uses eth0, skipping GRUB modification"
+        log_info "LXC — Proxmox manages network, skipping internal configuration"
         return 0
     fi
 
-    if [[ "$legacy_naming" =~ ^[Yy]$ ]]; then
-        run_cmd "Configuring legacy network naming (eth0, eth1)" bash -c '
-        if ! grep -q "net.ifnames=0" /etc/default/grub; then
-            sed -i "s/GRUB_CMDLINE_LINUX=\"\(.*\)\"/GRUB_CMDLINE_LINUX=\"\1 net.ifnames=0 biosdevname=0\"/" /etc/default/grub
-            update-grub
-        fi
-        '
-        log_info "Interface names will change to eth0, eth1 after reboot"
-    else
-        run_cmd "Configuring predictable network naming (ens*, enp*)" bash -c '
-        if grep -q "net.ifnames=0" /etc/default/grub; then
-            sed -i "s/GRUB_CMDLINE_LINUX=\"\(.*\)net.ifnames=0 biosdevname=0\(.*\)\"/GRUB_CMDLINE_LINUX=\"\1\2\"/" /etc/default/grub
-            update-grub
-        fi
-        '
-        log_info "Interface names will use predictable naming after reboot"
+    local -a ifaces=()
+    local iface
+    for iface in $(list_physical_ifaces); do
+        ifaces+=("${PINNED_NAMES[$iface]:-$iface}")
+    done
+    if (( ${#ifaces[@]} == 0 )); then
+        log_error "No physical network interfaces found!"
+        return 1
     fi
+    local primary="${ifaces[0]}"
+
+    local use_resolvconf="n"
+    dpkg-query -W -f='${Status}' resolvconf 2>/dev/null | grep -q "install ok installed" && use_resolvconf="y"
+
+    local new_file
+    new_file=$(mktemp)
+    {
+        echo "# Network configuration — managed by bash-scripts"
+        echo "source /etc/network/interfaces.d/*"
+        echo ""
+        echo "auto lo"
+        echo "iface lo inet loopback"
+        echo ""
+        echo "auto $primary"
+        if [[ "$network_type" == "static" ]]; then
+            echo "iface $primary inet static"
+            echo "    address $static_ip/$cidr"
+            echo "    gateway $gateway"
+            [[ "$use_resolvconf" == "y" ]] && echo "    dns-nameservers $dns_servers"
+        else
+            echo "iface $primary inet dhcp"
+        fi
+        for iface in "${ifaces[@]:1}"; do
+            echo ""
+            echo "# Additional interface — brought up when present, does not block boot"
+            echo "allow-hotplug $iface"
+            echo "iface $iface inet dhcp"
+        done
+    } > "$new_file"
+
+    if ! ifquery --interfaces="$new_file" --list -a >> "${LOGFILE:-/dev/null}" 2>&1; then
+        log_error "Generated network config is invalid (kept in $new_file)"
+        return 1
+    fi
+
+    local backup_file
+    backup_file="/etc/network/interfaces.bak.$(date +%s)"
+    [[ -f /etc/network/interfaces ]] && run_cmd "Backing up network config to $backup_file" cp /etc/network/interfaces "$backup_file"
+    run_cmd "Writing /etc/network/interfaces ($network_type, primary: $primary)" install -m 644 "$new_file" /etc/network/interfaces
+    rm -f "$new_file"
+
+    # Without resolvconf, dns-nameservers is ignored — write resolv.conf directly
+    if [[ "$network_type" == "static" && "$use_resolvconf" == "n" ]]; then
+        if [[ -L /etc/resolv.conf ]]; then
+            log_warning "/etc/resolv.conf is a symlink (managed elsewhere) — DNS not changed"
+        else
+            run_cmd "Writing /etc/resolv.conf" bash -c "
+            cp /etc/resolv.conf /etc/resolv.conf.bak.\$(date +%s) 2>/dev/null || true
+            : > /etc/resolv.conf
+            for dns in $dns_servers; do echo \"nameserver \$dns\" >> /etc/resolv.conf; done
+            "
+        fi
+    fi
+    log_info "Network config takes effect after reboot (backup: $backup_file)"
 }
 
 ############################################################# TEMPLATE FUNCTIONS
@@ -469,14 +393,15 @@ create_admin_user() {
     chmod 700 /home/debian/.ssh
     chown -R debian:debian /home/debian/.ssh
     '
-    run_cmd "Adding SSH keys" bash -c "
-    touch /home/debian/.ssh/authorized_keys
-    for key in \"\${@}\"; do
-        echo \"\$key\" >> /home/debian/.ssh/authorized_keys
+    run_cmd "Adding SSH keys" bash -c '
+    f=/home/debian/.ssh/authorized_keys
+    touch "$f"
+    for key in "$@"; do
+        grep -qxF -- "$key" "$f" || echo "$key" >> "$f"
     done
-    chmod 600 /home/debian/.ssh/authorized_keys
-    chown debian:debian /home/debian/.ssh/authorized_keys
-    " bash "${ssh_keys[@]}"
+    chmod 600 "$f"
+    chown debian:debian "$f"
+    ' bash "${ssh_keys[@]}"
 }
 
 secure_root_account() {
@@ -484,18 +409,15 @@ secure_root_account() {
 }
 
 install_base_packages() {
-    local codename="$1"
     run_cmd "Updating package lists" apt-get update
 
-    local base_packages="vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2"
+    local -a base_packages=(vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2)
 
     if ! is_lxc; then
-        base_packages="$base_packages qemu-guest-agent parted"
+        base_packages+=(qemu-guest-agent parted)
     fi
 
-    run_cmd "Installing base packages" bash -c "
-    DEBIAN_FRONTEND=noninteractive apt-get install -y $base_packages
-    "
+    run_cmd "Installing base packages" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${base_packages[@]}"
 }
 
 install_java() {
@@ -511,9 +433,7 @@ install_java() {
 }
 
 upgrade_system() {
-    run_cmd "Upgrading system packages" bash -c '
-    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-    '
+    run_cmd "Upgrading system packages" env DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 }
 
 configure_unattended_upgrades() {
@@ -537,55 +457,66 @@ EOL
     "
 }
 
+# Drop-in instead of sed on sshd_config: sshd uses the FIRST value it reads and
+# Debian includes sshd_config.d/*.conf at the top, so 00- wins over e.g. 50-cloud-init.conf.
+# Does not restart sshd — caller restarts once.
 harden_ssh() {
-    run_cmd "Hardening SSH configuration" bash -c '
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak."$(date +%s)"
-    sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin no/" /etc/ssh/sshd_config
-    sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication no/" /etc/ssh/sshd_config
-    sed -i "s/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/" /etc/ssh/sshd_config
-    sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/" /etc/ssh/sshd_config
-    sed -i "s/^#\?ClientAliveInterval.*/ClientAliveInterval 300/" /etc/ssh/sshd_config
-    sed -i "s/^#\?ClientAliveCountMax.*/ClientAliveCountMax 2/" /etc/ssh/sshd_config
-    systemctl restart ssh
-    '
-}
-
-configure_console_banner() {
-    if is_lxc; then
-        run_cmd "Configuring login banner" bash -c '
-        sed -i "/^IP:/d" /etc/issue 2>/dev/null || true
-        echo "IP: \4{eth0}" >> /etc/issue
-        '
-    else
-        run_cmd "Configuring login banner" bash -c '
-        sed -i "/^IP:/d" /etc/issue 2>/dev/null || true
-        echo "IP: \4{eth0} \4{ens18} \4{enp0s3}" >> /etc/issue
-        '
+    local dropin="/etc/ssh/sshd_config.d/00-hardening.conf"
+    if [[ ! -s /home/debian/.ssh/authorized_keys ]]; then
+        log_error "No SSH keys for user debian — skipping SSH hardening to avoid lock-out"
+        return 1
+    fi
+    run_cmd "Writing SSH hardening drop-in" bash -c "
+    mkdir -p /etc/ssh/sshd_config.d
+    cat > '$dropin' <<EOF
+# Managed by bash-scripts
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+ClientAliveInterval 300
+ClientAliveCountMax 2
+EOF
+    "
+    if ! run_cmd "Validating SSH configuration" sshd -t; then
+        rm -f "$dropin"
+        log_error "Invalid SSH configuration — hardening drop-in removed"
+        return 1
     fi
 }
 
-configure_motd() {
-    run_cmd "Creating MOTD directory" mkdir -p /etc/update-motd.d
+configure_console_banner() {
+    # \4 = IPv4 of the default-route interface (works with any interface name)
+    run_cmd "Configuring login banner" bash -c '
+    sed -i "/^IP:/d" /etc/issue 2>/dev/null || true
+    echo "IP: \4" >> /etc/issue
+    '
+}
 
+configure_motd() {
+    run_cmd "Creating MOTD script" bash -c "
+    mkdir -p /etc/update-motd.d
     cat > /etc/update-motd.d/10-system-info <<'EOF'
 #!/bin/bash
-echo ""
-echo "  ═════════════════════════════════════════════"
-echo ""
-echo "  Hostname:  $(hostname)"
-echo "  IP:        $(hostname -I 2>/dev/null | head -1)"
-echo "  Uptime:    $(uptime -p 2>/dev/null)"
-echo "  Disk /:    $(df -h / | tail -1 | awk '{print $3, "/", $2, "(" $5 ")"}')"
-echo "  Memory:    $(free -h | awk '/Mem:/ {print $3, "/", $2}')"
-echo ""
-echo "  ═════════════════════════════════════════════"
-echo ""
+echo \"\"
+echo \"  ═════════════════════════════════════════════\"
+echo \"\"
+echo \"  Hostname:  \$(hostname)\"
+echo \"  IP:        \$(hostname -I 2>/dev/null | head -1)\"
+echo \"  Uptime:    \$(uptime -p 2>/dev/null)\"
+echo \"  Disk /:    \$(df -h / | tail -1 | awk '{print \$3, \"/\", \$2, \"(\" \$5 \")\"}')\"
+echo \"  Memory:    \$(free -h | awk '/Mem:/ {print \$3, \"/\", \$2}')\"
+echo \"\"
+echo \"  ═════════════════════════════════════════════\"
+echo \"\"
 EOF
     chmod +x /etc/update-motd.d/10-system-info
+    "
 }
 
 clean_packages() {
     run_cmd "Cleaning package cache" bash -c '
+    set -e
     apt-get clean
     apt-get autoremove -y
     '
@@ -617,16 +548,16 @@ clear_machine_id() {
     '
 }
 
+# Truncates history files. The calling shell keeps its in-memory history and writes
+# it on logout — the caller is told to log out with 'unset HISTFILE; exit'.
 clear_history() {
-    run_cmd "Clearing shell history" bash -c '
+    run_cmd "Clearing shell history files" bash -c '
     for user in root debian; do
-        user_home=$(eval echo ~"$user" 2>/dev/null)
-        if [[ -f "$user_home/.bash_history" ]]; then
+        user_home=$(getent passwd "$user" | cut -d: -f6)
+        if [[ -n "$user_home" && -f "$user_home/.bash_history" ]]; then
             truncate -s 0 "$user_home/.bash_history"
         fi
     done
-    history -c || true
-    unset HISTFILE || true
     '
 }
 
@@ -673,6 +604,12 @@ set_hostname() {
     sed -i '/^127.0.1.1/d' /etc/hosts
     echo -e \"127.0.1.1\t$new_hostname.$domain\t$new_hostname\" >> /etc/hosts
     "
+    # Proxmox rewrites these files on every CT start unless told not to
+    if is_lxc; then
+        run_cmd "Keeping hostname across CT restarts (.pve-ignore)" \
+            touch /etc/.pve-ignore.hostname /etc/.pve-ignore.hosts
+        log_info "Proxmox UI still shows the old CT name — rename with: pct set <vmid> --hostname $new_hostname"
+    fi
 }
 
 install_zabbix() {
@@ -682,16 +619,15 @@ install_zabbix() {
     local hostname="$4"
 
     run_cmd "Installing Zabbix repository" bash -c "
+    set -e
     wget -qO /tmp/zabbix-key.asc https://repo.zabbix.com/zabbix-official-repo.key
-    gpg --dearmor < /tmp/zabbix-key.asc > /usr/share/keyrings/zabbix-archive-keyring.gpg
+    gpg --dearmor --yes -o /usr/share/keyrings/zabbix-archive-keyring.gpg /tmp/zabbix-key.asc
     echo \"deb [signed-by=/usr/share/keyrings/zabbix-archive-keyring.gpg] https://repo.zabbix.com/zabbix/7.0/debian $codename main\" > /etc/apt/sources.list.d/zabbix.list
     rm -f /tmp/zabbix-key.asc
     "
 
     run_cmd "Updating package lists" apt-get update
-    run_cmd "Installing Zabbix Agent 2" bash -c '
-    DEBIAN_FRONTEND=noninteractive apt-get install -y zabbix-agent2
-    '
+    run_cmd "Installing Zabbix Agent 2" env DEBIAN_FRONTEND=noninteractive apt-get install -y zabbix-agent2
 
     run_cmd "Configuring Zabbix Agent" bash -c "
     mkdir -p /var/lib/zabbix
@@ -711,35 +647,48 @@ Include=/etc/zabbix/zabbix_agent2.d/*.conf
 ControlSocket=/run/zabbix/agent.sock
 EOF
     "
+    run_cmd_continue "Enabling Zabbix Agent" systemctl enable zabbix-agent2 || true
 }
 
+# install_graylog URL TOKEN "tag1,tag2" y|n(tls_skip_verify)
 install_graylog() {
     local graylog_address="$1"
     local graylog_api_token="$2"
     local tags="$3"
+    local tls_skip_verify="${4:-n}"
 
-    # Try to install — if repo fails, warn and skip
-    if ! run_cmd_continue "Installing Graylog repository" bash -c "
-    wget -qO /tmp/graylog-key.asc https://packages.graylog2.org/repo/graylog-keyring.gpg
-    gpg --dearmor < /tmp/graylog-key.asc > /usr/share/keyrings/graylog-archive-keyring.gpg
-    echo \"deb [signed-by=/usr/share/keyrings/graylog-archive-keyring.gpg] https://packages.graylog2.org/repo/debian stable 7.0\" > /etc/apt/sources.list.d/graylog.list
-    rm -f /tmp/graylog-key.asc
+    # Latest release .deb from GitHub. Graylog's apt repo key has a SHA1 binding
+    # signature, which Debian 13's apt (sqv) rejects since 2026-02-01.
+    local arch
+    arch=$(dpkg --print-architecture)
+    [[ "$arch" == "armhf" ]] && arch="armv7"
+    if ! run_cmd_continue "Downloading latest Graylog Sidecar ($arch)" bash -c "
+    set -e
+    tag=\$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/Graylog2/collector-sidecar/releases/latest)
+    tag=\${tag##*/}
+    curl -fsSL -o /tmp/graylog-sidecar.deb \
+        https://github.com/Graylog2/collector-sidecar/releases/download/\$tag/graylog-sidecar_\${tag}-1_$arch.deb
     "; then
-        log_warning "Graylog repository setup failed — skipping Graylog installation"
+        log_warning "Graylog Sidecar download failed — skipping Graylog installation"
         return 1
     fi
 
-    if ! run_cmd_continue "Updating package lists" apt-get update; then
-        log_warning "Package list update failed after adding Graylog repo — skipping"
-        return 1
-    fi
-
-    if ! run_cmd_continue "Installing Graylog Sidecar" bash -c '
-    DEBIAN_FRONTEND=noninteractive apt-get install -y graylog-sidecar
-    '; then
+    if ! run_cmd_continue "Installing Graylog Sidecar" env DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/graylog-sidecar.deb; then
         log_warning "Graylog Sidecar installation failed — skipping configuration"
         return 1
     fi
+    rm -f /tmp/graylog-sidecar.deb
+
+    # tags must be a YAML list: "linux,web" -> ["linux", "web"]
+    local tag tags_yaml=""
+    local -a tag_list
+    IFS=',' read -ra tag_list <<< "$tags"
+    for tag in "${tag_list[@]}"; do
+        tag="${tag// /}"
+        [[ -n "$tag" ]] && tags_yaml+="${tags_yaml:+, }\"$tag\""
+    done
+    local skip_verify="false"
+    [[ "$tls_skip_verify" == "y" ]] && skip_verify="true"
 
     run_cmd "Configuring Graylog Sidecar" bash -c "
     mkdir -p /etc/graylog/sidecar
@@ -752,56 +701,78 @@ server_api_token: \"$graylog_api_token\"
 node_id: \"file:/etc/graylog/sidecar/node-id\"
 node_name: \"\$(hostname)\"
 update_interval: 10
-tls_skip_verify: true
+tls_skip_verify: $skip_verify
 send_status: true
-tags: $tags
+tags: [$tags_yaml]
 log_path: \"/var/log/graylog-sidecar\"
 EOF
     "
 
     run_cmd "Installing Graylog Sidecar service" bash -c '
     graylog-sidecar -service install
+    systemctl enable graylog-sidecar
     '
 }
 
+# add_nfs_mount "server:/export" /mount/point — fstab entry + mount now.
+# A failed mount is not fatal: the entry stays (nofail) and mounts at boot.
+add_nfs_mount() {
+    local share="$1" mount_point="$2"
+    if findmnt --fstab -n "$mount_point" &>/dev/null; then
+        log_warning "$mount_point already in /etc/fstab — skipping $share"
+        return 0
+    fi
+    run_cmd "Adding NFS share $share -> $mount_point" bash -c "
+    set -e
+    mkdir -p '$mount_point'
+    echo '$share $mount_point nfs defaults,_netdev,nofail 0 0' >> /etc/fstab
+    systemctl daemon-reload
+    "
+    run_cmd_continue "Mounting $mount_point" mount "$mount_point" \
+        || log_warning "Not mounted now (server reachable? exported to this host?) — will mount at boot"
+}
+
+# Clone, or fast-forward an existing clone — never deletes it (script may run from there)
 clone_bash_scripts() {
     run_cmd "Installing git (if needed)" bash -c '
     if ! command -v git &>/dev/null; then
         DEBIAN_FRONTEND=noninteractive apt-get install -y git
     fi
     '
-    run_cmd "Cloning bash-scripts repository" bash -c '
-    cd /home/debian
-    if [[ -d "bash-scripts" ]]; then
-        rm -rf bash-scripts
+    if [[ -d /home/debian/bash-scripts/.git ]]; then
+        run_cmd_continue "Updating bash-scripts repository" \
+            sudo -u debian git -C /home/debian/bash-scripts pull --ff-only || true
+    else
+        run_cmd "Cloning bash-scripts repository" \
+            sudo -u debian git clone https://github.com/kamil-lada/bash-scripts.git /home/debian/bash-scripts
     fi
-    sudo -u debian git clone https://github.com/kamil-lada/bash-scripts.git
-    '
 }
 
 start_services() {
     run_cmd "Ensuring SSH is running" systemctl start ssh
-    if systemctl list-unit-files | grep -q zabbix-agent2; then
-        run_cmd_continue "Starting Zabbix Agent" systemctl start zabbix-agent2
+    if unit_exists zabbix-agent2.service; then
+        run_cmd_continue "Starting Zabbix Agent" systemctl start zabbix-agent2 || true
     fi
-    if systemctl list-unit-files | grep -q graylog-sidecar; then
-        run_cmd_continue "Starting Graylog Sidecar" systemctl start graylog-sidecar
+    if unit_exists graylog-sidecar.service; then
+        run_cmd_continue "Starting Graylog Sidecar" systemctl start graylog-sidecar || true
     fi
-    if ! is_lxc && systemctl list-unit-files | grep -q qemu-guest-agent; then
-        run_cmd_continue "Starting QEMU Guest Agent" systemctl start qemu-guest-agent
+    if ! is_lxc && unit_exists qemu-guest-agent.service; then
+        run_cmd_continue "Starting QEMU Guest Agent" systemctl start qemu-guest-agent || true
     fi
 }
 
 ############################################################# VERIFICATION & SUMMARY
+# Uses the config globals of 2.initialize_for_usecase.sh:
+# INSTANCE_HOSTNAME, INSTALL_ZABBIX, ZABBIX_ADDRESS, ZABBIX_PORT, INSTALL_GRAYLOG, GRAYLOG_ADDRESS
 verify_installation() {
     log_section "Verification"
     local -a failures=()
 
-    if [[ -n "${new_hostname:-}" ]]; then
-        if [[ "$(hostname)" == "$new_hostname" ]]; then
+    if [[ -n "${INSTANCE_HOSTNAME:-}" ]]; then
+        if [[ "$(hostname)" == "$INSTANCE_HOSTNAME" ]]; then
             log_success "Hostname: OK ($(hostname))"
         else
-            log_error "Hostname: MISMATCH (expected $new_hostname, got $(hostname))"
+            log_error "Hostname: MISMATCH (expected $INSTANCE_HOSTNAME, got $(hostname))"
             failures+=("hostname")
         fi
     fi
@@ -819,13 +790,13 @@ verify_installation() {
         log_warning "Time sync: Not active"
     fi
 
-    if ip -4 addr show | grep -q "inet.*global" 2>/dev/null; then
+    if ip -4 addr show | grep -q "inet.*global"; then
         log_success "Network: IP assigned"
     else
         log_warning "Network: No IP detected (may be pending restart)"
     fi
 
-    if [[ "${install_zabbix:-n}" =~ ^[Yy]$ ]]; then
+    if [[ "${INSTALL_ZABBIX:-n}" == "y" ]]; then
         if systemctl is-active --quiet zabbix-agent2; then
             log_success "Zabbix Agent: Running"
         else
@@ -834,7 +805,7 @@ verify_installation() {
         fi
     fi
 
-    if [[ "${install_graylog:-n}" =~ ^[Yy]$ ]]; then
+    if [[ "${INSTALL_GRAYLOG:-n}" == "y" ]]; then
         if systemctl is-active --quiet graylog-sidecar; then
             log_success "Graylog Sidecar: Running"
         else
@@ -844,7 +815,7 @@ verify_installation() {
     fi
 
     if (( ${#failures[@]} > 0 )); then
-        log_warning "Verification completed with ${#failures[@]} failure(s)"
+        log_warning "Verification completed with ${#failures[@]} failure(s): ${failures[*]}"
         return 1
     fi
     log_success "All verifications passed"
@@ -863,16 +834,16 @@ show_final_summary() {
     printf "  %-26s %s\n" "NTP Sync:" "$(timedatectl show -p NTPSynchronized --value 2>/dev/null || echo 'N/A')"
 
     local primary_ip
-    primary_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v "127.0.0.1" | head -1)
+    primary_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     printf "  %-26s %s\n" "Primary IP:" "${primary_ip:-Not assigned yet}"
 
     printf "  %-26s %s\n" "SSH:" "Port 22, key-only"
 
-    if [[ "${install_zabbix:-n}" =~ ^[Yy]$ ]]; then
-        printf "  %-26s %s\n" "Zabbix:" "${zabbix_address:-not configured}:${zabbix_port:-10051}"
+    if [[ "${INSTALL_ZABBIX:-n}" == "y" ]]; then
+        printf "  %-26s %s\n" "Zabbix:" "${ZABBIX_ADDRESS:-not configured}:${ZABBIX_PORT:-10051}"
     fi
-    if [[ "${install_graylog:-n}" =~ ^[Yy]$ ]]; then
-        printf "  %-26s %s\n" "Graylog:" "${graylog_address:-not configured}"
+    if [[ "${INSTALL_GRAYLOG:-n}" == "y" ]]; then
+        printf "  %-26s %s\n" "Graylog:" "${GRAYLOG_ADDRESS:-not configured}"
     fi
 
     echo ""
@@ -892,12 +863,24 @@ ask() {
     echo "${answer:-$default}"
 }
 
+# normalize_yn VALUE -> echoes y|n, returns 1 if not a yes/no value
+normalize_yn() {
+    case "${1,,}" in
+        y|yes|true|1)  echo y ;;
+        n|no|false|0)  echo n ;;
+        *) return 1 ;;
+    esac
+}
+
 # confirm "Question" [default y|n] -> 0 on yes
 confirm() {
     local question="$1" default="${2:-n}" hint answer
     [[ "$default" =~ ^[Yy]$ ]] && hint="Y/n" || hint="y/N"
-    read -rp "$(echo -e "${YELLOW}[?]${NC} $question [$hint]: ")" answer
-    [[ "${answer:-$default}" =~ ^[Yy]$ ]]
+    while true; do
+        read -rp "$(echo -e "${YELLOW}[?]${NC} $question [$hint]: ")" answer
+        answer=$(normalize_yn "${answer:-$default}") && break
+    done
+    [[ "$answer" == "y" ]]
 }
 
 # confirm_typed "Question" "WORD" -> 0 only when user types WORD exactly
@@ -905,4 +888,41 @@ confirm_typed() {
     local question="$1" word="$2" answer
     read -rp "$(echo -e "${RED}[!]${NC} $question Type '${word}' to continue: ")" answer
     [[ "$answer" == "$word" ]]
+}
+
+# get_opt VAR "Question" [default] [validator]
+# Uses the config value of VAR when set and valid, otherwise asks. Result stored in VAR.
+get_opt() {
+    local var="$1" question="$2" default="${3:-}" validator="${4:-}" value
+    value="${!var:-}"
+    if [[ -n "$value" ]]; then
+        if [[ -z "$validator" ]] || "$validator" "$value"; then
+            log_info "$question: $value (from config)"
+            return 0
+        fi
+        log_error "Invalid $var in config: '$value'"
+    fi
+    while true; do
+        value=$(ask "$question" "$default")
+        if [[ -n "$value" ]] && { [[ -z "$validator" ]] || "$validator" "$value"; }; then
+            break
+        fi
+        log_error "Invalid value: '$value'"
+    done
+    printf -v "$var" '%s' "$value"
+}
+
+# get_yn VAR "Question" [default y|n] — like get_opt for yes/no; VAR becomes y|n
+get_yn() {
+    local var="$1" question="$2" default="${3:-n}" value
+    if [[ -n "${!var:-}" ]]; then
+        if value=$(normalize_yn "${!var}"); then
+            log_info "$question: $value (from config)"
+            printf -v "$var" '%s' "$value"
+            return 0
+        fi
+        log_error "Invalid $var in config: '${!var}'"
+    fi
+    if confirm "$question" "$default"; then value=y; else value=n; fi
+    printf -v "$var" '%s' "$value"
 }

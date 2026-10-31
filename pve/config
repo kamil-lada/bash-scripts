@@ -1,18 +1,23 @@
 # Instance Configuration
 # Leave empty to use interactive prompts
 # Read-only — scripts never write to this file
+# Phase 1: bash 1.create_template.sh [config]          (default: this file)
+# Phase 2: bash 2.initialize_for_usecase.sh [config]  (default: /etc/instance_config, else this file)
+# Yes/no values: y/n (yes/no/true/false also accepted)
 
 INSTANCE_HOSTNAME=
 INSTANCE_DOMAIN=
 INSTANCE_TIMEZONE=
+
+# VM only. Pin NIC names to MAC (like Proxmox VE 9): nic0, nic1, ... (phase 2)
+PIN_INTERFACES=
+PIN_PREFIX=
 
 NETWORK_TYPE=
 STATIC_IP=
 CIDR_PREFIX=
 GATEWAY_IP=
 DNS_SERVERS=
-
-LEGACY_NAMING=
 
 INSTALL_ZABBIX=
 ZABBIX_ADDRESS=
@@ -21,7 +26,9 @@ ZABBIX_PORT=
 INSTALL_GRAYLOG=
 GRAYLOG_ADDRESS=
 GRAYLOG_API_TOKEN=
+# Comma separated, e.g. linux,web
 GRAYLOG_TAGS=
+GRAYLOG_TLS_SKIP_VERIFY=
 
 CREATE_SWAP=
 SWAP_SIZE_GB=

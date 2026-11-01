@@ -1,4 +1,5 @@
 #!/bin/bash
+# Remove Jenkins installed by jenkins-upsert_all.sh (Java is left installed)
 
 LOG_FILE="/var/log/jenkins_uninstall.log"
 
@@ -7,9 +8,9 @@ log() {
   echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
-# Function to log failed commands
+# Function to log failed commands (continues — removal should get as far as possible)
 log_error() {
-  echo "$(date +'%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2 | tee -a "$LOG_FILE"
+  echo "$(date +'%Y-%m-%d %H:%M:%S') - ERROR: $1" | tee -a "$LOG_FILE" >&2
 }
 
 # Check for root privileges
@@ -18,12 +19,30 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# Set variables
+# Set variables (must match jenkins-upsert_all.sh)
 JENKINS_USER="jenkins"
-JENKINS_HOME="/data/jenkins"
 JENKINS_WAR_PATH="/opt/jenkins.war"
 JENKINS_SERVICE="/etc/systemd/system/jenkins.service"
-BACKUP_DIR="/opt/jenkins_backup"
+
+# Data location: default is the current one (from the service file) or /data/jenkins
+CURRENT_HOME=$(sed -n 's/^Environment=JENKINS_HOME=//p' "$JENKINS_SERVICE" 2>/dev/null)
+DEFAULT_HOME="${CURRENT_HOME:-/data/jenkins}"
+read -rp "Jenkins data location [$DEFAULT_HOME]: " JENKINS_HOME
+JENKINS_HOME="${JENKINS_HOME:-$DEFAULT_HOME}"
+JENKINS_HOME="${JENKINS_HOME%/}"
+case "$JENKINS_HOME" in
+  /?*) ;;
+  *) log_error "Data location must be an absolute path (not /): '$JENKINS_HOME'"; exit 1 ;;
+esac
+# Backups next to the data dir: /data/jenkins -> /data/_backup/jenkins_backup
+BACKUP_DIR="$(dirname "$JENKINS_HOME")/_backup/jenkins_backup"
+
+read -rp "Remove Jenkins service, WAR file and user? (y/N) " confirm
+if [ "$confirm" != "y" ]; then
+  echo "Aborted."
+  exit 0
+fi
+read -rp "Also DELETE Jenkins data ($JENKINS_HOME) and WAR backups ($BACKUP_DIR)? (y/N) " delete_data
 
 # Stop Jenkins service
 log "Stopping Jenkins service."
@@ -43,18 +62,21 @@ systemctl daemon-reload 2>>"$LOG_FILE" || log_error "Failed to reload systemd da
 
 # Remove Jenkins WAR file
 log "Removing Jenkins WAR file."
-rm -f "$JENKINS_WAR_PATH" 2>>"$LOG_FILE" || log_error "Failed to remove Jenkins WAR file."
+rm -f "$JENKINS_WAR_PATH" "$JENKINS_WAR_PATH.new" 2>>"$LOG_FILE" || log_error "Failed to remove Jenkins WAR file."
 
-# Remove Jenkins user and home directory
+# Remove Jenkins user (home directory only when data deletion was confirmed)
 if id "$JENKINS_USER" &>/dev/null; then
-  log "Removing Jenkins user and home directory."
-  userdel -r "$JENKINS_USER" 2>>"$LOG_FILE" || log_error "Failed to remove Jenkins user and home directory."
+  log "Removing Jenkins user."
+  userdel "$JENKINS_USER" 2>>"$LOG_FILE" || log_error "Failed to remove Jenkins user."
 else
   log "Jenkins user does not exist."
 fi
 
-# Remove backup directory
-log "Removing backup directory."
-rm -rf "$BACKUP_DIR" 2>>"$LOG_FILE" || log_error "Failed to remove backup directory."
+if [ "$delete_data" = "y" ]; then
+  log "Removing Jenkins data and backups."
+  rm -rf "$JENKINS_HOME" "$BACKUP_DIR" 2>>"$LOG_FILE" || log_error "Failed to remove Jenkins data or backups."
+else
+  log "Keeping Jenkins data ($JENKINS_HOME) and backups ($BACKUP_DIR)."
+fi
 
 log "Jenkins uninstallation script completed."

@@ -421,10 +421,12 @@ install_base_packages() {
 }
 
 install_java() {
+    # apt-cache show succeeds even without an installable version — check the candidate
     run_cmd "Installing OpenJDK" bash -c '
-    if apt-cache show openjdk-25-jdk &>/dev/null; then
+    has() { apt-cache policy "$1" | grep -q "Candidate: [0-9]"; }
+    if has openjdk-25-jdk; then
         DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-25-jdk
-    elif apt-cache show openjdk-21-jdk &>/dev/null; then
+    elif has openjdk-21-jdk; then
         DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jdk
     else
         DEBIAN_FRONTEND=noninteractive apt-get install -y default-jdk

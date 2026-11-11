@@ -536,7 +536,7 @@ secure_root_account() {
 install_base_packages() {
     apt_update
 
-    local -a base_packages=(vim git curl wget ca-certificates gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2 gnupg)
+    local -a base_packages=(vim nano git curl wget ca-certificates gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2 gnupg)
 
     if ! is_lxc; then
         base_packages+=(qemu-guest-agent parted)
@@ -572,16 +572,23 @@ EOF
     '
 }
 
-configure_shell_aliases() {
-    run_cmd "Configuring shell aliases" bash -c "
-    if ! grep -q 'alias ll=' /etc/bash.bashrc; then
-        cat >> /etc/bash.bashrc <<'EOL'
-
-# Custom aliases
+# Marked block in /etc/bash.bashrc (all users, interactive shells), rewritten on every
+# run. Removes the unmarked lines older script versions appended.
+_write_shell_aliases() {
+    local f=/etc/bash.bashrc
+    sed -i -e '/^# >>> bash-scripts aliases >>>$/,/^# <<< bash-scripts aliases <<<$/d' \
+           -e '/^# Custom aliases$/d' -e '/^alias ll=/d' -e '/^alias nanosh=/d' "$f"
+    cat >> "$f" <<'EOF'
+# >>> bash-scripts aliases >>>
 alias ll='ls -alhF --group-directories-first'
-EOL
-    fi
-    "
+# nanosh FILE — create an executable script and open it in nano
+nanosh() { touch "$1" && chmod +x "$1" && nano "$1"; }
+# <<< bash-scripts aliases <<<
+EOF
+}
+
+configure_shell_aliases() {
+    run_cmd "Configuring shell aliases (ll, nanosh)" _write_shell_aliases
 }
 
 # Drop-in instead of sed on sshd_config: sshd uses the FIRST value it reads and

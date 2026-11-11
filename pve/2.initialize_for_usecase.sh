@@ -286,6 +286,7 @@ main() {
     install_base_packages
     create_admin_user "${ssh_keys[@]}"
     configure_admin_sudo
+    configure_shell_aliases
 
     set_hostname "$INSTANCE_HOSTNAME" "$INSTANCE_DOMAIN"
 

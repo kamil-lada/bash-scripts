@@ -73,17 +73,23 @@ chmod 750 "$JENKINS_HOME" 2>>"$LOG_FILE" || log_error "Failed to set permissions
 # Install Java 21 (required by current Jenkins LTS)
 # Debian 13 ships openjdk-21, Debian 12 only 17 -> use Adoptium Temurin there
 log "Installing Java 21."
-apt-get update >>"$LOG_FILE" 2>&1 || log_error "apt-get update failed."
+# --error-on=any: fail on unsigned / unreachable repos instead of only warning
+apt-get update --error-on=any >>"$LOG_FILE" 2>&1 || log_error "apt-get update failed (broken repository?). Check $LOG_FILE."
 # (apt-cache show succeeds even for packages without an installable version)
 if apt-cache policy openjdk-21-jre-headless | grep -q "Candidate: [0-9]"; then
   JAVA_PKG="openjdk-21-jre-headless"
 else
   log "openjdk-21 not available in this Debian release, adding Adoptium repository."
+  # deb822 + Signed-By, key world-readable (apt verifies as user _apt) — same as add_apt_repo in lib/common.sh
   {
-    apt-get install -y wget gpg &&
-    wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor --yes -o /usr/share/keyrings/adoptium.gpg &&
-    echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" > /etc/apt/sources.list.d/adoptium.list &&
-    apt-get update
+    apt-get install -y curl ca-certificates &&
+    install -d -m 0755 /etc/apt/keyrings &&
+    curl -fsSL -o /etc/apt/keyrings/adoptium.asc https://packages.adoptium.net/artifactory/api/gpg/key/public &&
+    chmod 0644 /etc/apt/keyrings/adoptium.asc &&
+    rm -f /etc/apt/sources.list.d/adoptium.list /usr/share/keyrings/adoptium.gpg &&
+    printf 'Types: deb\nURIs: https://packages.adoptium.net/artifactory/deb\nSuites: %s\nComponents: main\nSigned-By: /etc/apt/keyrings/adoptium.asc\n' \
+      "$(. /etc/os-release && echo "$VERSION_CODENAME")" > /etc/apt/sources.list.d/adoptium.sources &&
+    apt-get update --error-on=any
   } >>"$LOG_FILE" 2>&1 || log_error "Failed to add Adoptium repository."
   JAVA_PKG="temurin-21-jre"
 fi

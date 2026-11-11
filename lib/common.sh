@@ -5,6 +5,13 @@
 [[ -n "${_LIB_COMMON_LOADED:-}" ]] && return 0
 _LIB_COMMON_LOADED=1
 
+# Plain 'su' (without '-') keeps the user's PATH on Debian — no /usr/sbin
+# (useradd, sysctl, dpkg-reconfigure, ...). Make sure the sbin dirs are there.
+case ":$PATH:" in
+    *:/usr/sbin:*) ;;
+    *) export PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH" ;;
+esac
+
 ############################################################# COLORS
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -69,7 +76,7 @@ run_cmd_continue() { _run continue "$@"; }
 ############################################################# SYSTEM CHECKS
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        log_error "This script must be run as root"
+        log_error "This script must be run as root: sudo bash $0, or 'su -' first (no sudo access)"
         exit 1
     fi
 }
@@ -375,6 +382,66 @@ configure_network() {
     log_info "Network config takes effect after reboot (backup: $backup_file)"
 }
 
+############################################################# APT
+# apt-get update that fails on ANY repo error (unsigned repo, missing key, 404...).
+# Plain apt-get update exits 0 on many of these, and the failure only shows up
+# later as "package has no installation candidate".
+apt_update() {
+    run_cmd "${1:-Updating package lists}" apt-get update --error-on=any
+}
+
+# add_apt_repo NAME URI SUITE COMPONENTS KEY_URL [ARCHITECTURES]
+# Third-party repo set up the way Debian 12/13 apt expects it:
+#   - key in /etc/apt/keyrings/NAME.asc|.gpg, mode 0644 (apt verifies as user _apt)
+#   - deb822 /etc/apt/sources.list.d/NAME.sources with Signed-By. Never the legacy
+#     /etc/apt/trusted.gpg: Debian 13 apt ignores it ("Missing key ...").
+#   - other entries for the same URI (old .list files, vendor release packages,
+#     manual setups) are set aside — they carry other keys and break apt update
+# Ends with apt_update, so a broken repo fails here, not at install time.
+add_apt_repo() {
+    local name="$1" uri="$2" suite="$3" components="$4" key_url="$5" archs="${6:-}"
+    local target="/etc/apt/sources.list.d/$name.sources"
+    local match="${uri#*://}" tmp key f
+    match="${match%/}"
+
+    tmp=$(mktemp)
+    if ! run_cmd "Downloading $name repository key" curl -fsSL -o "$tmp" "$key_url"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    key="/etc/apt/keyrings/$name.gpg"
+    grep -q -- "-----BEGIN PGP PUBLIC KEY BLOCK-----" "$tmp" && key="/etc/apt/keyrings/$name.asc"
+    install -d -m 0755 /etc/apt/keyrings
+    rm -f "/etc/apt/keyrings/$name.asc" "/etc/apt/keyrings/$name.gpg"
+    install -m 0644 "$tmp" "$key"
+    rm -f "$tmp"
+
+    for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+        [[ -f "$f" && "$f" != "$target" ]] || continue
+        if grep -qF -- "$match" "$f"; then
+            mv "$f" "$f.bak"
+            log_warning "Old $name repo entry set aside: $f -> $f.bak"
+        fi
+    done
+    if [[ -f /etc/apt/sources.list ]] && grep -v '^[[:space:]]*#' /etc/apt/sources.list | grep -qF -- "$match"; then
+        sed -i "\|^[^#].*${match}|s|^|# |" /etc/apt/sources.list
+        log_warning "Old $name repo entry commented out in /etc/apt/sources.list"
+    fi
+
+    cat > "$target" <<EOF
+Types: deb
+URIs: $uri
+Suites: $suite
+Components: $components
+${archs:+Architectures: $archs
+}Signed-By: $key
+EOF
+    chmod 0644 "$target"
+    log_success "Repository $name: $uri $suite"
+
+    apt_update "Updating package lists ($name repo)"
+}
+
 ############################################################# TEMPLATE FUNCTIONS
 create_admin_user() {
     local ssh_keys=("$@")
@@ -382,11 +449,6 @@ create_admin_user() {
     if ! id debian &>/dev/null; then
         useradd -m -s /bin/bash debian
     fi
-    '
-    run_cmd "Configuring passwordless sudo" bash -c '
-    mkdir -p /etc/sudoers.d
-    echo "debian ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/debian
-    chmod 440 /etc/sudoers.d/debian
     '
     run_cmd "Creating SSH directory" bash -c '
     mkdir -p /home/debian/.ssh
@@ -404,14 +466,37 @@ create_admin_user() {
     ' bash "${ssh_keys[@]}"
 }
 
+admin_has_sudo() {
+    sudo -l -U debian 2>/dev/null | grep -q "NOPASSWD: ALL"
+}
+
+# Passwordless sudo for debian: rule validated by visudo, then verified.
+# Phase 1 (template) and phase 2 (clones of older templates may lack it).
+configure_admin_sudo() {
+    if ! command -v sudo &>/dev/null; then
+        apt_update
+        run_cmd "Installing sudo" env DEBIAN_FRONTEND=noninteractive apt-get install -y sudo
+    fi
+    run_cmd "Configuring passwordless sudo (debian)" bash -c '
+    set -e
+    tmp=$(mktemp)
+    echo "debian ALL=(ALL) NOPASSWD:ALL" > "$tmp"
+    visudo -cf "$tmp"
+    install -d -m 0750 /etc/sudoers.d
+    install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/debian
+    rm -f "$tmp"
+    '
+    run_cmd "Verifying sudo access (debian)" admin_has_sudo
+}
+
 secure_root_account() {
     run_cmd "Locking root account" passwd -l root
 }
 
 install_base_packages() {
-    run_cmd "Updating package lists" apt-get update
+    apt_update
 
-    local -a base_packages=(vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2)
+    local -a base_packages=(vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2 gnupg)
 
     if ! is_lxc; then
         base_packages+=(qemu-guest-agent parted)
@@ -620,15 +705,9 @@ install_zabbix() {
     local zabbix_port="$3"
     local hostname="$4"
 
-    run_cmd "Installing Zabbix repository" bash -c "
-    set -e
-    wget -qO /tmp/zabbix-key.asc https://repo.zabbix.com/zabbix-official-repo.key
-    gpg --dearmor --yes -o /usr/share/keyrings/zabbix-archive-keyring.gpg /tmp/zabbix-key.asc
-    echo \"deb [signed-by=/usr/share/keyrings/zabbix-archive-keyring.gpg] https://repo.zabbix.com/zabbix/7.0/debian $codename main\" > /etc/apt/sources.list.d/zabbix.list
-    rm -f /tmp/zabbix-key.asc
-    "
-
-    run_cmd "Updating package lists" apt-get update
+    rm -f /usr/share/keyrings/zabbix-archive-keyring.gpg   # keyring of the previous version of this function
+    add_apt_repo zabbix https://repo.zabbix.com/zabbix/7.0/debian "$codename" main \
+        https://repo.zabbix.com/zabbix-official-repo.key || return 1
     run_cmd "Installing Zabbix Agent 2" env DEBIAN_FRONTEND=noninteractive apt-get install -y zabbix-agent2
 
     run_cmd "Configuring Zabbix Agent" bash -c "
@@ -653,33 +732,67 @@ EOF
 }
 
 # install_graylog URL TOKEN "tag1,tag2" y|n(tls_skip_verify)
+# Installs/updates, configures and enables (not starts) the sidecar. Safe to re-run.
+# Returns 1 on any failure.
 install_graylog() {
     local graylog_address="$1"
     local graylog_api_token="$2"
     local tags="$3"
     local tls_skip_verify="${4:-n}"
+    local deb="/tmp/graylog-sidecar.deb"
 
-    # Latest release .deb from GitHub. Graylog's apt repo key has a SHA1 binding
-    # signature, which Debian 13's apt (sqv) rejects since 2026-02-01.
+    # Graylog's apt repo (added by older installs) has a SHA1-bound key —
+    # Debian 13's apt rejects it and every apt update fails
+    if dpkg -s graylog-sidecar-repository &>/dev/null; then
+        run_cmd_continue "Removing old Graylog Sidecar apt repository" \
+            apt-get purge -y graylog-sidecar-repository || return 1
+    fi
+    # Same key problem: Graylog server repo written by this function before 2026-10-31
+    # (not owned by a package — a graylog-X.Y-repository package on a Graylog server is left alone)
+    local old_list=/etc/apt/sources.list.d/graylog.list old_key=/usr/share/keyrings/graylog-archive-keyring.gpg
+    if [[ -f "$old_list" ]] && grep -qF "packages.graylog2.org/repo/debian stable" "$old_list" \
+            && ! dpkg -S "$old_list" &>/dev/null; then
+        rm -f "$old_list"
+        dpkg -S "$old_key" &>/dev/null || rm -f "$old_key"
+        log_warning "Removed old Graylog apt repository ($old_list) — sidecar now installs from GitHub"
+    fi
+
+    if ! command -v curl &>/dev/null; then
+        apt_update || return 1
+        run_cmd_continue "Installing curl" \
+            env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates || return 1
+    fi
+
+    # Latest release .deb from GitHub, verified against the release checksums.
+    # Graylog's apt repo key has a SHA1 binding signature, which Debian 13's
+    # apt (sqv) rejects since 2026-02-01.
     local arch
     arch=$(dpkg --print-architecture)
     [[ "$arch" == "armhf" ]] && arch="armv7"
-    if ! run_cmd_continue "Downloading latest Graylog Sidecar ($arch)" bash -c "
-    set -e
-    tag=\$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/Graylog2/collector-sidecar/releases/latest)
-    tag=\${tag##*/}
-    curl -fsSL -o /tmp/graylog-sidecar.deb \
-        https://github.com/Graylog2/collector-sidecar/releases/download/\$tag/graylog-sidecar_\${tag}-1_$arch.deb
-    "; then
+    if ! run_cmd_continue "Downloading latest Graylog Sidecar ($arch)" bash -c '
+    set -eo pipefail
+    arch="$1" deb="$2"
+    tag=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/Graylog2/collector-sidecar/releases/latest)
+    tag=${tag##*/}
+    base="https://github.com/Graylog2/collector-sidecar/releases/download/$tag"
+    file="graylog-sidecar_${tag}-1_${arch}.deb"
+    echo "Release: $tag, file: $file"
+    curl -fsSL -o "$deb" "$base/$file"
+    curl -fsSL "$base/CHECKSUMS-SHA256.txt" | awk -v f="$file" -v d="$deb" '\''$2 == f {print $1 "  " d}'\'' | sha256sum -c -
+    ' _ "$arch" "$deb"; then
+        rm -f "$deb"
         log_warning "Graylog Sidecar download failed — skipping Graylog installation"
         return 1
     fi
 
-    if ! run_cmd_continue "Installing Graylog Sidecar" env DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/graylog-sidecar.deb; then
+    # sidecar.yml is a conffile and gets rewritten below — keep the old one on upgrade, no prompt
+    if ! run_cmd_continue "Installing Graylog Sidecar" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$deb"; then
+        rm -f "$deb"
         log_warning "Graylog Sidecar installation failed — skipping configuration"
         return 1
     fi
-    rm -f /tmp/graylog-sidecar.deb
+    rm -f "$deb"
 
     # tags must be a YAML list: "linux,web" -> ["linux", "web"]
     local tag tags_yaml=""
@@ -692,7 +805,8 @@ install_graylog() {
     local skip_verify="false"
     [[ "$tls_skip_verify" == "y" ]] && skip_verify="true"
 
-    run_cmd "Configuring Graylog Sidecar" bash -c "
+    run_cmd_continue "Configuring Graylog Sidecar" bash -c "
+    set -e
     mkdir -p /etc/graylog/sidecar
     if [[ -f /etc/graylog/sidecar/sidecar.yml ]]; then
         cp /etc/graylog/sidecar/sidecar.yml /etc/graylog/sidecar/sidecar.yml.bak
@@ -708,12 +822,14 @@ send_status: true
 tags: [$tags_yaml]
 log_path: \"/var/log/graylog-sidecar\"
 EOF
-    "
+    " || return 1
 
-    run_cmd "Installing Graylog Sidecar service" bash -c '
-    graylog-sidecar -service install
-    systemctl enable graylog-sidecar
-    '
+    # The package ships no systemd unit; 'graylog-sidecar -service install' creates it
+    # and fails if it already exists (re-run / upgrade)
+    if ! unit_exists graylog-sidecar.service; then
+        run_cmd_continue "Installing Graylog Sidecar service" graylog-sidecar -service install || return 1
+    fi
+    run_cmd_continue "Enabling Graylog Sidecar" systemctl enable graylog-sidecar || return 1
 }
 
 # add_nfs_mount "server:/export" /mount/point — fstab entry + mount now.

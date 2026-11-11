@@ -207,6 +207,7 @@ main() {
 
     create_admin_user "${ssh_keys[@]}"
     install_base_packages
+    configure_admin_sudo
     install_java
     upgrade_system
     configure_unattended_upgrades

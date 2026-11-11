@@ -250,32 +250,16 @@ install_packages() {
     done
     state_set PREREQS_INSTALLED "${new_prereqs[*]}"
 
-    run_cmd "Updating package lists" apt-get update
+    apt_update
     if (( ${#new_prereqs[@]} > 0 )); then
         run_cmd "Installing prerequisites (${new_prereqs[*]})" \
             env DEBIAN_FRONTEND=noninteractive apt-get install -y "${new_prereqs[@]}"
     fi
 
-    # Old one-line repo file from previous script version conflicts with deb822 file
-    rm -f /etc/apt/sources.list.d/docker.list
-
-    run_cmd "Creating keyring directory" install -m 0755 -d /etc/apt/keyrings
-    run_cmd "Downloading Docker GPG key" \
-        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
-
-    run_cmd "Adding Docker repository (deb822)" bash -c "
-    cat > /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/debian
-Suites: $CODENAME
-Components: stable
-Architectures: $ARCH
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-    "
-
-    run_cmd "Updating package lists (Docker repo)" apt-get update
+    # /etc/apt/keyrings/docker.asc + /etc/apt/sources.list.d/docker.sources
+    # (the paths docker-remove_all.sh cleans up)
+    add_apt_repo docker https://download.docker.com/linux/debian "$CODENAME" stable \
+        https://download.docker.com/linux/debian/gpg "$ARCH"
     run_cmd "Installing ${DOCKER_PACKAGES[*]}" \
         env DEBIAN_FRONTEND=noninteractive apt-get install -y "${DOCKER_PACKAGES[@]}"
 

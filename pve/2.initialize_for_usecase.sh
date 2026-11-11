@@ -268,6 +268,8 @@ main() {
     # Execute — non-disruptive first
     log_section "Initializing Instance"
 
+    configure_admin_sudo
+
     set_hostname "$INSTANCE_HOSTNAME" "$INSTANCE_DOMAIN"
 
     # Network (VM only) — takes effect after reboot
@@ -317,9 +319,13 @@ main() {
     regenerate_ssh_keys
 
     # Lock down AFTER everything is configured and working.
-    # Root is only locked when key-only SSH is in place — otherwise no way in.
+    # Root is only locked when key-only SSH and sudo for debian are in place — otherwise no way in.
     if harden_ssh; then
-        secure_root_account
+        if admin_has_sudo; then
+            secure_root_account
+        else
+            log_warning "debian has no working sudo — root NOT locked"
+        fi
     else
         log_warning "SSH not hardened and root not locked — fix SSH keys and re-run"
     fi

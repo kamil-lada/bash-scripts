@@ -212,6 +212,10 @@ validate_nfs_share() {
     [[ "$1" =~ ^[A-Za-z0-9._-]+:/[^[:space:]]*$ ]]
 }
 
+validate_ssh_key() {
+    ssh-keygen -l -f /dev/stdin <<< "$1" &>/dev/null
+}
+
 validate_url() {
     [[ "$1" =~ ^https?://[^/[:space:]]+ ]]
 }
@@ -1017,6 +1021,28 @@ confirm_typed() {
     local question="$1" word="$2" answer
     read -rp "$(echo -e "${RED}[!]${NC} $question Type '${word}' to continue: ")" answer
     [[ "$answer" == "$word" ]]
+}
+
+# read_ssh_keys ARRAY MIN — SSH public keys, one per line, empty line to finish.
+# Invalid keys are rejected; asks until at least MIN keys were given.
+read_ssh_keys() {
+    local -n _keys="$1"
+    local min="${2:-0}" key
+    log_info "Enter SSH public keys for user debian (one per line, empty line to finish):"
+    while true; do
+        read -r key
+        if [[ -z "$key" ]]; then
+            (( ${#_keys[@]} >= min )) && break
+            log_error "At least one SSH key is required — debian has none"
+            continue
+        fi
+        if ! validate_ssh_key "$key"; then
+            log_error "Not a valid SSH public key — skipped"
+            continue
+        fi
+        _keys+=("$key")
+        echo "  Key ${#_keys[@]} added"
+    done
 }
 
 # get_opt VAR "Question" [default] [validator]

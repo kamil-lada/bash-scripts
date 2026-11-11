@@ -182,7 +182,18 @@ main() {
         CREATE_SWAP="n"
     fi
 
-    # NFS shares (interactive, like SSH keys in phase 1)
+    # SSH keys for debian — required when it has none (clones of older templates),
+    # without them SSH hardening and root locking are skipped
+    local -a ssh_keys=()
+    local existing_keys=0
+    if [[ -f /home/debian/.ssh/authorized_keys ]]; then
+        existing_keys=$(grep -cE '^(ssh-|ecdsa-|sk-)' /home/debian/.ssh/authorized_keys || true)
+    fi
+    log_info "User debian has $existing_keys SSH key(s) — add more below or press Enter to keep them"
+    read_ssh_keys ssh_keys $(( existing_keys > 0 ? 0 : 1 ))
+    echo ""
+
+    # NFS shares (interactive, like SSH keys)
     local -a nfs_shares=() nfs_mounts=()
     local line share mount_point name
     if is_lxc; then
@@ -225,6 +236,7 @@ main() {
     echo "  Hostname: $INSTANCE_HOSTNAME"
     echo "  Domain: $INSTANCE_DOMAIN"
     echo "  FQDN: $INSTANCE_HOSTNAME.$INSTANCE_DOMAIN"
+    echo "  SSH keys (debian): $existing_keys existing + ${#ssh_keys[@]} new"
     echo "  Timezone: $INSTANCE_TIMEZONE"
     if [[ "$INSTALL_ZABBIX" == "y" ]]; then
         echo "  Zabbix: $ZABBIX_ADDRESS:$ZABBIX_PORT"
@@ -272,6 +284,7 @@ main() {
     # Broken repo entries out first — they fail every apt update.
     remove_legacy_apt_repos
     install_base_packages
+    create_admin_user "${ssh_keys[@]}"
     configure_admin_sudo
 
     set_hostname "$INSTANCE_HOSTNAME" "$INSTANCE_DOMAIN"

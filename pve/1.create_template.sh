@@ -122,22 +122,8 @@ main() {
     log_section "Configuration Input"
 
     # SSH keys (always interactive — multi-line input)
-    log_info "Enter SSH public keys for admin access (one per line, empty line to finish):"
     local -a ssh_keys=()
-    local ssh_key
-    while true; do
-        read -r ssh_key
-        if [[ -z "$ssh_key" ]]; then
-            break
-        fi
-        ssh_keys+=("$ssh_key")
-        echo "  Key $(( ${#ssh_keys[@]} )) added"
-    done
-
-    if [[ ${#ssh_keys[@]} -eq 0 ]]; then
-        log_error "At least one SSH key is required for admin access"
-        exit 1
-    fi
+    read_ssh_keys ssh_keys 1
     echo ""
 
     get_opt INSTANCE_TIMEZONE "Timezone for template" "Europe/Warsaw" validate_timezone

@@ -390,6 +390,43 @@ apt_update() {
     run_cmd "${1:-Updating package lists}" apt-get update --error-on=any
 }
 
+# ensure_packages PKG... — installs only the missing ones. For lib functions that
+# app scripts call standalone (no install_base_packages before them).
+ensure_packages() {
+    local -a missing=()
+    local p
+    for p in "$@"; do
+        [[ "$(dpkg-query -W -f='${Status}' "$p" 2>/dev/null)" == "install ok installed" ]] || missing+=("$p")
+    done
+    (( ${#missing[@]} == 0 )) && return 0
+    apt_update || return 1
+    run_cmd "Installing ${missing[*]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+}
+
+# Repo entries left by older versions of these scripts that break apt update
+# on Debian 13 (SHA1-bound Graylog key, empty/legacy Zabbix keyrings). Run it
+# before the first apt update. Files owned by a package that is not listed here
+# (e.g. graylog-X.Y-repository on a Graylog server) are left alone.
+remove_legacy_apt_repos() {
+    local pkg f
+    for pkg in graylog-sidecar-repository zabbix-release; do
+        if dpkg -s "$pkg" &>/dev/null; then
+            run_cmd "Removing old apt repository package $pkg" apt-get purge -y "$pkg" || return 1
+        fi
+    done
+    # list|keyring|line written by the old install_graylog / install_zabbix
+    for f in "/etc/apt/sources.list.d/graylog.list|/usr/share/keyrings/graylog-archive-keyring.gpg|packages.graylog2.org/repo/debian stable" \
+             "/etc/apt/sources.list.d/zabbix.list|/usr/share/keyrings/zabbix-archive-keyring.gpg|signed-by=/usr/share/keyrings/zabbix-archive-keyring.gpg"; do
+        local list key line
+        IFS='|' read -r list key line <<< "$f"
+        if [[ -f "$list" ]] && grep -qF -- "$line" "$list" && ! dpkg -S "$list" &>/dev/null; then
+            rm -f "$list"
+            dpkg -S "$key" &>/dev/null || rm -f "$key"
+            log_warning "Removed old apt repository entry $list"
+        fi
+    done
+}
+
 # add_apt_repo NAME URI SUITE COMPONENTS KEY_URL [ARCHITECTURES]
 # Third-party repo set up the way Debian 12/13 apt expects it:
 #   - key in /etc/apt/keyrings/NAME.asc|.gpg, mode 0644 (apt verifies as user _apt)
@@ -404,18 +441,7 @@ add_apt_repo() {
     local match="${uri#*://}" tmp key f
     match="${match%/}"
 
-    tmp=$(mktemp)
-    if ! run_cmd "Downloading $name repository key" curl -fsSL -o "$tmp" "$key_url"; then
-        rm -f "$tmp"
-        return 1
-    fi
-    key="/etc/apt/keyrings/$name.gpg"
-    grep -q -- "-----BEGIN PGP PUBLIC KEY BLOCK-----" "$tmp" && key="/etc/apt/keyrings/$name.asc"
-    install -d -m 0755 /etc/apt/keyrings
-    rm -f "/etc/apt/keyrings/$name.asc" "/etc/apt/keyrings/$name.gpg"
-    install -m 0644 "$tmp" "$key"
-    rm -f "$tmp"
-
+    # Old entries first — they would fail the apt update that installing curl needs
     for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
         [[ -f "$f" && "$f" != "$target" ]] || continue
         if grep -qF -- "$match" "$f"; then
@@ -427,6 +453,19 @@ add_apt_repo() {
         sed -i "\|^[^#].*${match}|s|^|# |" /etc/apt/sources.list
         log_warning "Old $name repo entry commented out in /etc/apt/sources.list"
     fi
+
+    ensure_packages curl ca-certificates || return 1
+    tmp=$(mktemp)
+    if ! run_cmd "Downloading $name repository key" curl -fsSL -o "$tmp" "$key_url"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    key="/etc/apt/keyrings/$name.gpg"
+    grep -q -- "-----BEGIN PGP PUBLIC KEY BLOCK-----" "$tmp" && key="/etc/apt/keyrings/$name.asc"
+    install -d -m 0755 /etc/apt/keyrings
+    rm -f "/etc/apt/keyrings/$name.asc" "/etc/apt/keyrings/$name.gpg"
+    install -m 0644 "$tmp" "$key"
+    rm -f "$tmp"
 
     cat > "$target" <<EOF
 Types: deb
@@ -472,11 +511,8 @@ admin_has_sudo() {
 
 # Passwordless sudo for debian: rule validated by visudo, then verified.
 # Phase 1 (template) and phase 2 (clones of older templates may lack it).
+# Needs sudo installed (install_base_packages).
 configure_admin_sudo() {
-    if ! command -v sudo &>/dev/null; then
-        apt_update
-        run_cmd "Installing sudo" env DEBIAN_FRONTEND=noninteractive apt-get install -y sudo
-    fi
     run_cmd "Configuring passwordless sudo (debian)" bash -c '
     set -e
     tmp=$(mktemp)
@@ -496,7 +532,7 @@ secure_root_account() {
 install_base_packages() {
     apt_update
 
-    local -a base_packages=(vim git curl wget gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2 gnupg)
+    local -a base_packages=(vim git curl wget ca-certificates gpg jq nfs-common dirmngr net-tools htop sudo logrotate unattended-upgrades tcpdump iproute2 gnupg)
 
     if ! is_lxc; then
         base_packages+=(qemu-guest-agent parted)
@@ -705,7 +741,6 @@ install_zabbix() {
     local zabbix_port="$3"
     local hostname="$4"
 
-    rm -f /usr/share/keyrings/zabbix-archive-keyring.gpg   # keyring of the previous version of this function
     add_apt_repo zabbix https://repo.zabbix.com/zabbix/7.0/debian "$codename" main \
         https://repo.zabbix.com/zabbix-official-repo.key || return 1
     run_cmd "Installing Zabbix Agent 2" env DEBIAN_FRONTEND=noninteractive apt-get install -y zabbix-agent2
@@ -741,27 +776,8 @@ install_graylog() {
     local tls_skip_verify="${4:-n}"
     local deb="/tmp/graylog-sidecar.deb"
 
-    # Graylog's apt repo (added by older installs) has a SHA1-bound key —
-    # Debian 13's apt rejects it and every apt update fails
-    if dpkg -s graylog-sidecar-repository &>/dev/null; then
-        run_cmd_continue "Removing old Graylog Sidecar apt repository" \
-            apt-get purge -y graylog-sidecar-repository || return 1
-    fi
-    # Same key problem: Graylog server repo written by this function before 2026-10-31
-    # (not owned by a package — a graylog-X.Y-repository package on a Graylog server is left alone)
-    local old_list=/etc/apt/sources.list.d/graylog.list old_key=/usr/share/keyrings/graylog-archive-keyring.gpg
-    if [[ -f "$old_list" ]] && grep -qF "packages.graylog2.org/repo/debian stable" "$old_list" \
-            && ! dpkg -S "$old_list" &>/dev/null; then
-        rm -f "$old_list"
-        dpkg -S "$old_key" &>/dev/null || rm -f "$old_key"
-        log_warning "Removed old Graylog apt repository ($old_list) — sidecar now installs from GitHub"
-    fi
-
-    if ! command -v curl &>/dev/null; then
-        apt_update || return 1
-        run_cmd_continue "Installing curl" \
-            env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates || return 1
-    fi
+    remove_legacy_apt_repos || return 1
+    ensure_packages curl ca-certificates || return 1
 
     # Latest release .deb from GitHub, verified against the release checksums.
     # Graylog's apt repo key has a SHA1 binding signature, which Debian 13's
@@ -852,11 +868,6 @@ add_nfs_mount() {
 
 # Clone, or fast-forward an existing clone — never deletes it (script may run from there)
 clone_bash_scripts() {
-    run_cmd "Installing git (if needed)" bash -c '
-    if ! command -v git &>/dev/null; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y git
-    fi
-    '
     if [[ -d /home/debian/bash-scripts/.git ]]; then
         run_cmd_continue "Updating bash-scripts repository" \
             sudo -u debian git -C /home/debian/bash-scripts pull --ff-only || true

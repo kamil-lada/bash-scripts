@@ -268,6 +268,10 @@ main() {
     # Execute — non-disruptive first
     log_section "Initializing Instance"
 
+    # Same start as the template: clones of older templates get what they lack.
+    # Broken repo entries out first — they fail every apt update.
+    remove_legacy_apt_repos
+    install_base_packages
     configure_admin_sudo
 
     set_hostname "$INSTANCE_HOSTNAME" "$INSTANCE_DOMAIN"
@@ -299,9 +303,6 @@ main() {
     fi
 
     if (( ${#nfs_shares[@]} > 0 )); then
-        if ! command -v mount.nfs &>/dev/null; then
-            run_cmd "Installing nfs-common" env DEBIAN_FRONTEND=noninteractive apt-get install -y nfs-common
-        fi
         for i in "${!nfs_shares[@]}"; do
             add_nfs_mount "${nfs_shares[$i]}" "${nfs_mounts[$i]}"
         done

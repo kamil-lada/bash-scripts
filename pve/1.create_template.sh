@@ -206,6 +206,7 @@ main() {
     log_section "Creating Template"
 
     create_admin_user "${ssh_keys[@]}"
+    remove_legacy_apt_repos
     install_base_packages
     configure_admin_sudo
     install_java

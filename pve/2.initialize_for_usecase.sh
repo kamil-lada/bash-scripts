@@ -25,6 +25,12 @@ trap 'echo -e "${RED}Initialization failed. Check $LOGFILE for details${NC}" >&2
 load_config "$CONFIG_FILE"
 
 ############################################################# VM-SPECIFIC FUNCTIONS
+# Active swap partitions as "NAME (SIZE), ..." (empty when none)
+list_swap_partitions() {
+    swapon --show=NAME,TYPE,SIZE --noheadings 2>/dev/null \
+        | awk '$2 == "partition" {printf "%s%s (%s)", sep, $1, $3; sep = ", "}'
+}
+
 create_swapfile() {
     local swap_size="$1"
     local swap_file="/swapfile"
@@ -171,15 +177,17 @@ main() {
     echo ""
 
     # VM-only: Swap
-    CREATE_SWAP="${CREATE_SWAP:-}"
+    local swap_partitions=""
     if ! is_lxc; then
-        get_yn CREATE_SWAP "Create swapfile?" n
-        if [[ "$CREATE_SWAP" == "y" ]]; then
-            get_opt SWAP_SIZE_GB "Swapfile size in GB" "1" validate_positive_int
+        swap_partitions=$(list_swap_partitions || true)
+        if [[ -n "$swap_partitions" ]]; then
+            log_warning "Swap partition already active: $swap_partitions — a swapfile is probably not needed"
         fi
+        get_opt SWAP_SIZE_GB "Swapfile size in GB (0 = no swapfile)" "0" validate_non_negative_int
+        SWAP_SIZE_GB=$((10#$SWAP_SIZE_GB))
         echo ""
     else
-        CREATE_SWAP="n"
+        SWAP_SIZE_GB=0
     fi
 
     # SSH keys for debian — required when it has none (clones of older templates),
@@ -260,8 +268,13 @@ main() {
         else
             echo "  Network: Skipped (other network manager active)"
         fi
-        if [[ "$CREATE_SWAP" == "y" ]]; then
+        if [[ -n "$swap_partitions" ]]; then
+            echo "  Swap partition: $swap_partitions"
+        fi
+        if (( SWAP_SIZE_GB > 0 )); then
             echo "  Swapfile: ${SWAP_SIZE_GB}GB"
+        else
+            echo "  Swapfile: none"
         fi
     else
         echo "  Network: Managed by Proxmox"
@@ -312,7 +325,7 @@ main() {
         install_graylog "$GRAYLOG_ADDRESS" "$GRAYLOG_API_TOKEN" "$GRAYLOG_TAGS" "$GRAYLOG_TLS_SKIP_VERIFY" || true
     fi
 
-    if [[ "$CREATE_SWAP" == "y" ]]; then
+    if (( SWAP_SIZE_GB > 0 )); then
         create_swapfile "$SWAP_SIZE_GB"
     fi
 

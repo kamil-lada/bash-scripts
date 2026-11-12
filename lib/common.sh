@@ -199,6 +199,10 @@ validate_positive_int() {
     [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 ))
 }
 
+validate_non_negative_int() {
+    [[ "$1" =~ ^[0-9]+$ ]]
+}
+
 validate_network_type() {
     [[ "$1" == "dhcp" || "$1" == "static" ]]
 }

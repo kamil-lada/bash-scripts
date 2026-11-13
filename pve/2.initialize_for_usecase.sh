@@ -234,6 +234,10 @@ main() {
     done
     echo ""
 
+    # APT sources: http -> https where the mirror supports it (probed, rolled back on errors)
+    get_yn APT_HTTPS "Switch apt sources to https (where supported)?" y
+    echo ""
+
     # Bash scripts repo
     get_yn CLONE_REPO "Clone/update bash-scripts repository?" n
     echo ""
@@ -246,6 +250,7 @@ main() {
     echo "  FQDN: $INSTANCE_HOSTNAME.$INSTANCE_DOMAIN"
     echo "  SSH keys (debian): $existing_keys existing + ${#ssh_keys[@]} new"
     echo "  Timezone: $INSTANCE_TIMEZONE"
+    echo "  APT sources to https: $APT_HTTPS"
     if [[ "$INSTALL_ZABBIX" == "y" ]]; then
         echo "  Zabbix: $ZABBIX_ADDRESS:$ZABBIX_PORT"
     fi
@@ -297,6 +302,11 @@ main() {
     # Broken repo entries out first — they fail every apt update.
     remove_legacy_apt_repos
     install_base_packages
+    # After base packages: needs curl + ca-certificates. Not fatal — on apt errors
+    # the function restores the http sources itself.
+    if [[ "$APT_HTTPS" == "y" ]]; then
+        apt_https_migrate --apply || log_warning "APT sources left on http (see $LOGFILE)"
+    fi
     create_admin_user "${ssh_keys[@]}"
     configure_admin_sudo
     configure_shell_aliases

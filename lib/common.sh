@@ -489,6 +489,213 @@ EOF
     apt_update "Updating package lists ($name repo)"
 }
 
+# _apt_http_entries FILE — prints "URI SUITE" for every http:// source in FILE.
+# One-line format (.list): deb|deb-src [options] URI SUITE [COMPONENTS...]
+# deb822 (.sources): URIs:/Suites: of each stanza (folded lines included), Enabled: no skipped
+_apt_http_entries() {
+    local f="$1"
+    if [[ "$f" == *.sources ]]; then
+        awk '
+        function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+        function flush(   nu, ns, u, s, i, j) {
+            if (tolower(trim(fld["enabled"])) != "no") {
+                nu = split(trim(fld["uris"]), u, /[ \t]+/)
+                ns = split(trim(fld["suites"]), s, /[ \t]+/)
+                for (i = 1; i <= nu; i++)
+                    if (u[i] ~ /^http:\/\//)
+                        for (j = 1; j <= ns; j++) print u[i], s[j]
+            }
+            delete fld; key = ""
+        }
+        /^[ \t]*#/    { next }
+        /^[ \t]*$/    { flush(); next }
+        /^[ \t]/      { if (key != "") fld[key] = fld[key] " " $0; next }
+        index($0, ":") { key = tolower(substr($0, 1, index($0, ":") - 1)); fld[key] = substr($0, index($0, ":") + 1) }
+        END { flush() }
+        ' "$f"
+    else
+        awk '
+        /^[ \t]*deb(-src)?[ \t]/ {
+            sub(/^[ \t]*deb(-src)?[ \t]+/, "")
+            if (substr($0, 1, 1) == "[") sub(/^\[[^]]*\][ \t]*/, "")
+            if ($1 ~ /^http:\/\// && $2 != "") print $1, $2
+        }' "$f"
+    fi
+}
+
+# _apt_inrelease_url URI SUITE — https:// URL of the repo InRelease file.
+# Flat repos (suite ends with "/", e.g. "./") have no dists/ directory.
+_apt_inrelease_url() {
+    local base="https://${1#http://}" suite="$2"
+    base="${base%/}"
+    if [[ "$suite" == */ ]]; then
+        suite="${suite%/}"
+        [[ "$suite" == "." || -z "$suite" ]] && echo "$base/InRelease" || echo "$base/$suite/InRelease"
+    else
+        echo "$base/dists/$suite/InRelease"
+    fi
+}
+
+# apt_https_migrate [--apply]
+# Switches http:// apt sources (sources.list, sources.list.d/*.list, *.sources) to
+# https://, but only repos whose https://<uri>/dists/<suite>/InRelease answers —
+# every suite of a URI must pass, otherwise the URI stays on http and is reported.
+# Default is a dry run: prints file, current URI and proposed URI, changes nothing.
+# --apply: installs ca-certificates (+curl) if missing, backs up each changed file
+# to FILE.http-bak, runs apt-get update; on Err:/E:/W: Failed lines restores the
+# backups and runs apt-get update again. Returns 1 when the switch was rolled back.
+apt_https_migrate() {
+    local apply=n arg
+    for arg in "$@"; do
+        case "$arg" in
+            --apply) apply=y ;;
+            *) log_error "apt_https_migrate: unknown option '$arg' (usage: apt_https_migrate [--apply])"; return 1 ;;
+        esac
+    done
+
+    ############ distro
+    if [[ ! -f /etc/os-release ]]; then
+        log_error "/etc/os-release not found"
+        return 1
+    fi
+    local id id_like codename
+    IFS='|' read -r id id_like codename < <(source /etc/os-release; echo "${ID:-}|${ID_LIKE:-}|${VERSION_CODENAME:-}")
+    if [[ ! " $id $id_like " =~ \ (debian|ubuntu)\  ]] || ! command -v apt-get &>/dev/null; then
+        log_error "Not an apt-based system (ID=${id:-unknown}, ID_LIKE=${id_like:-none})"
+        return 1
+    fi
+    log_info "Detected: $id${id_like:+ (like $id_like)}${codename:+, $codename}"
+    if [[ "$apply" == "y" && $EUID -ne 0 ]]; then
+        log_error "apt_https_migrate --apply must be run as root"
+        return 1
+    fi
+
+    ############ collect http entries
+    local -a files=() e_file=() e_uri=() e_suite=()
+    local f uri suite
+    [[ -f /etc/apt/sources.list ]] && files+=(/etc/apt/sources.list)
+    for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+        [[ -f "$f" ]] && files+=("$f")
+    done
+    for f in "${files[@]}"; do
+        while read -r uri suite; do
+            e_file+=("$f"); e_uri+=("$uri"); e_suite+=("$suite")
+        done < <(_apt_http_entries "$f")
+    done
+    if (( ${#e_uri[@]} == 0 )); then
+        log_success "No http:// apt sources found"
+        return 0
+    fi
+
+    ############ prerequisites for probing
+    local can_probe=y p
+    if [[ "$apply" == "y" ]]; then
+        ensure_packages curl ca-certificates || return 1
+    else
+        for p in curl ca-certificates; do
+            if [[ "$(dpkg-query -W -f='${Status}' "$p" 2>/dev/null)" != "install ok installed" ]]; then
+                log_warning "$p not installed (--apply installs it) — https not probed in this dry run"
+                can_probe=n
+            fi
+        done
+    fi
+
+    ############ probe every URI+suite once; a URI is switched only if all its suites pass
+    # --proto-redir =https: apt refuses https -> http redirects, so must the probe
+    local -A probed=() uri_ok=() uri_fail=()
+    local i url
+    for i in "${!e_uri[@]}"; do
+        uri="${e_uri[$i]}" suite="${e_suite[$i]}"
+        [[ -n "${probed[$uri $suite]:-}" ]] && continue
+        url=$(_apt_inrelease_url "$uri" "$suite")
+        if [[ "$can_probe" == "n" ]]; then
+            probed[$uri $suite]=skip
+        elif curl -fsSL --proto-redir =https --max-time 10 -o /dev/null "$url" >> "${LOGFILE:-/dev/null}" 2>&1; then
+            probed[$uri $suite]=ok
+        else
+            probed[$uri $suite]=fail
+            uri_fail[$uri]="${uri_fail[$uri]:+${uri_fail[$uri]} }$url"
+        fi
+    done
+    for i in "${!e_uri[@]}"; do
+        uri="${e_uri[$i]}"
+        [[ "$can_probe" == "y" && -z "${uri_fail[$uri]:-}" ]] && uri_ok[$uri]=y
+    done
+
+    ############ report: file, current URI, proposed URI
+    local -A shown=() changes=()
+    local mark
+    for i in "${!e_uri[@]}"; do
+        f="${e_file[$i]}" uri="${e_uri[$i]}"
+        [[ -n "${shown[$f]:-}" ]] || { echo ""; log_info "$f"; shown[$f]=1; }
+        [[ -n "${shown[$f|$uri]:-}" ]] && continue
+        shown[$f|$uri]=1
+        if [[ -n "${uri_ok[$uri]:-}" ]]; then
+            mark="${GREEN}https OK${NC}"
+            changes[$f]+="$uri"$'\n'
+        elif [[ "$can_probe" == "n" ]]; then
+            mark="${YELLOW}not probed${NC}"
+        else
+            mark="${RED}keep http${NC}"
+        fi
+        printf "    %-50s -> %-51s " "$uri" "https://${uri#http://}"
+        echo -e "[$mark]"
+    done
+    echo ""
+
+    local -a kept=()
+    for uri in "${!uri_fail[@]}"; do kept+=("$uri"); done
+    if (( ${#kept[@]} > 0 )); then
+        log_warning "Staying on http (https probe failed):"
+        for uri in "${kept[@]}"; do
+            for url in ${uri_fail[$uri]}; do echo "    $uri  ($url)"; done
+        done
+    fi
+
+    if [[ "$apply" == "n" ]]; then
+        log_info "Dry run — nothing changed. Re-run with --apply to switch ${#uri_ok[@]} repo(s) to https"
+        return 0
+    fi
+    if (( ${#changes[@]} == 0 )); then
+        log_warning "No repository passed the https probe — nothing changed"
+        return 0
+    fi
+
+    ############ apply: backup, rewrite (only the exact URI token, never comment lines)
+    local -a changed=()
+    local re rep
+    for f in "${!changes[@]}"; do
+        run_cmd "Backing up $f -> $f.http-bak" cp -p "$f" "$f.http-bak" || return 1
+        changed+=("$f")
+        while IFS= read -r uri; do
+            [[ -n "$uri" ]] || continue
+            re=$(printf '%s' "$uri" | sed 's/[][\.*^$#/+?(){}|]/\\&/g')
+            rep=$(printf '%s' "https://${uri#http://}" | sed 's/[\&#]/\\&/g')
+            run_cmd "Switching $uri to https in $f" \
+                sed -i -E "/^[[:space:]]*#/!s#(^|[[:space:]:])${re}([[:space:]]|\$)#\\1${rep}\\2#g" "$f" || return 1
+        done <<< "${changes[$f]}"
+    done
+
+    ############ verify with apt-get update, roll back on errors
+    local out rc=0
+    printf "%-60s" "Updating package lists (https sources)..."
+    out=$(LC_ALL=C apt-get update 2>&1) || rc=$?
+    echo "$out" >> "${LOGFILE:-/dev/null}"
+    if (( rc == 0 )) && ! grep -qE '^(Err:|E:|W: Failed)' <<< "$out"; then
+        echo -e "${GREEN}OK${NC}"
+        log_success "Switched ${#uri_ok[@]} repo(s) to https in ${#changed[@]} file(s) (backups: *.http-bak)"
+        return 0
+    fi
+    echo -e "${RED}ERROR${NC}"
+    grep -E '^(Err:|E:|W: Failed)' <<< "$out" | sed 's/^/  /' >&2 || true
+    log_error "apt-get update failed after switching to https — restoring backups"
+    for f in "${changed[@]}"; do
+        run_cmd_continue "Restoring $f" mv -f "$f.http-bak" "$f" || true
+    done
+    run_cmd_continue "Updating package lists (restored http sources)" apt-get update || true
+    return 1
+}
+
 ############################################################# TEMPLATE FUNCTIONS
 create_admin_user() {
     local ssh_keys=("$@")

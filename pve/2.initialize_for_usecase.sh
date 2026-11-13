@@ -238,10 +238,6 @@ main() {
     get_yn APT_HTTPS "Switch apt sources to https (where supported)?" y
     echo ""
 
-    # Bash scripts repo
-    get_yn CLONE_REPO "Clone/update bash-scripts repository?" n
-    echo ""
-
     # Summary
     log_section "Configuration Summary"
     echo "  Environment: $(is_lxc && echo "LXC" || echo "VM")"
@@ -343,10 +339,6 @@ main() {
         for i in "${!nfs_shares[@]}"; do
             add_nfs_mount "${nfs_shares[$i]}" "${nfs_mounts[$i]}"
         done
-    fi
-
-    if [[ "$CLONE_REPO" == "y" ]]; then
-        clone_bash_scripts
     fi
 
     start_services

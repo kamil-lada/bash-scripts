@@ -35,5 +35,3 @@ SWAP_SIZE_GB=
 
 # Phase 2. Switch http:// apt sources to https:// where the mirror supports it
 APT_HTTPS=
-
-CLONE_REPO=

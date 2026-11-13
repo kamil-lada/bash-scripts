@@ -1088,17 +1088,6 @@ add_nfs_mount() {
         || log_warning "Not mounted now (server reachable? exported to this host?) — will mount at boot"
 }
 
-# Clone, or fast-forward an existing clone — never deletes it (script may run from there)
-clone_bash_scripts() {
-    if [[ -d /home/debian/bash-scripts/.git ]]; then
-        run_cmd_continue "Updating bash-scripts repository" \
-            sudo -u debian git -C /home/debian/bash-scripts pull --ff-only || true
-    else
-        run_cmd "Cloning bash-scripts repository" \
-            sudo -u debian git clone https://github.com/kamil-lada/bash-scripts.git /home/debian/bash-scripts
-    fi
-}
-
 start_services() {
     run_cmd "Ensuring SSH is running" systemctl start ssh
     if unit_exists zabbix-agent2.service; then

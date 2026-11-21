@@ -1288,3 +1288,106 @@ get_yn() {
     if confirm "$question" "$default"; then value=y; else value=n; fi
     printf -v "$var" '%s' "$value"
 }
+
+############################################################# CADDY + CLOUDFLARE DNS
+# Shared by apps/caddy-install_cloudflare.sh (LXC/VM) and apps/docker-setup_caddy.sh
+
+# conf_get FILE KEY — value of KEY=value (last one wins). Plain text parsing,
+# nothing in the file is executed. Surrounding quotes are stripped.
+conf_get() {
+    local file="$1" key="$2" line value=""
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == "$key="* ]] && value="${line#"$key="}"
+    done < "$file"
+    value="${value%$'\r'}"
+    if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then
+        value="${BASH_REMATCH[1]}"
+    fi
+    printf '%s' "$value"
+}
+
+# Go package paths, space separated (e.g. github.com/mholt/caddy-ratelimit)
+validate_caddy_plugins() {
+    local p
+    for p in $1; do
+        [[ "$p" =~ ^[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)+(@[A-Za-z0-9._-]+)?$ ]] || return 1
+    done
+}
+
+# host, IP or host:port
+validate_hostport() {
+    [[ "$1" =~ ^[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]
+}
+
+# Space-separated IPv4 addresses / CIDRs
+validate_ip_cidr_list() {
+    local item
+    [[ -n "$1" ]] || return 1
+    for item in $1; do
+        validate_ip "${item%/*}" || return 1
+        [[ "$item" != */* ]] || validate_cidr "${item#*/}" || return 1
+    done
+}
+
+# cf_verify_zone_token ZONE TOKEN — the token must see the zone (Zone:Read);
+# DNS:Edit is proven by the first certificate. Token is not visible in ps.
+cf_verify_zone_token() {
+    local zone="$1" token="$2" resp
+    log_info "Checking Cloudflare token against zone $zone..."
+    if ! resp=$(curl -sS --max-time 20 \
+            -H @<(printf 'Authorization: Bearer %s\n' "$token") \
+            "https://api.cloudflare.com/client/v4/zones?name=$zone"); then
+        log_error "Cannot reach the Cloudflare API"
+        return 1
+    fi
+    if grep -qE "\"name\": ?\"${zone//./\\.}\"" <<< "$resp"; then
+        log_success "Token can access zone $zone"
+        return 0
+    fi
+    log_error "Token cannot see zone $zone. API answer:"
+    sed -n 's/.*"errors":\(\[[^]]*\]\).*/  \1/p' <<< "$resp" >&2
+    log_warning "Token needs: Zone / Zone / Read and Zone / DNS / Edit, scoped to $zone"
+    return 1
+}
+
+# ask_cf_token VAR ZONE [EXISTING_TOKEN] — hidden prompt + check against the zone
+ask_cf_token() {
+    local -n _cf_token="$1"
+    local zone="$2" existing="${3:-}"
+    if [[ -n "$existing" ]] && confirm "Keep the existing Cloudflare API token?" y; then
+        _cf_token="$existing"
+    else
+        log_info "Create it at dash.cloudflare.com -> My Profile -> API Tokens -> 'Edit zone DNS' template"
+        log_info "Permissions: Zone / Zone / Read + Zone / DNS / Edit, Zone Resources: $zone"
+        while true; do
+            read -rsp "$(echo -e "${YELLOW}[?]${NC} Cloudflare API token (hidden): ")" _cf_token
+            echo ""
+            [[ "$_cf_token" =~ ^[A-Za-z0-9_-]{20,}$ ]] && break
+            log_error "That does not look like an API token (not the Global API Key / Zone ID)"
+        done
+    fi
+    if ! cf_verify_zone_token "$zone" "$_cf_token"; then
+        confirm "Continue with this token anyway?" n || exit 1
+    fi
+}
+
+# caddy_render_template SRC DEST ZONE CATCH_ALL_UPSTREAM TRUSTED_PROXIES
+# Turns apps/caddy-Caddyfile.example into a starter Caddyfile:
+#   example.com            -> ZONE
+#   #>> catch_all section  -> kept with upstream CATCH_ALL_UPSTREAM, removed when empty
+#   #>> trusted_proxies    -> uncommented with TRUSTED_PROXIES, left commented when empty
+caddy_render_template() {
+    local src="$1" dest="$2" zone="$3" upstream="$4" trusted="$5"
+    local -a expr=(-e "s/example\.com/$zone/g")
+    if [[ -n "$upstream" ]]; then
+        expr+=(-e "s|https://10\.0\.0\.20|https://$upstream|")
+    else
+        expr+=(-e '/^#>> catch_all/,/^#<< catch_all/d')
+    fi
+    if [[ -n "$trusted" ]]; then
+        expr+=(-e '/#>> trusted_proxies/,/#<< trusted_proxies/{/#>>\|#<<\|#   /!s/^\t#/\t/}'
+               -e "s|static 10\.0\.0\.10/32|static $trusted|")
+    fi
+    sed "${expr[@]}" "$src" > "$dest"
+}

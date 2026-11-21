@@ -1,0 +1,131 @@
+# Caddyfile — the ONLY Caddy config file, kept in git and deployed by automation.
+# Same file for both setups:
+#   LXC / VM (caddy-install_cloudflare.sh), file /etc/caddy/Caddyfile:
+#     scp Caddyfile host:/tmp/Caddyfile && ssh host sudo caddy-apply /tmp/Caddyfile
+#     or git pull into /etc/caddy on the host, then:  sudo caddy-apply
+#   Docker (docker-setup_caddy.sh), file <stack>/conf/Caddyfile:
+#     scp Caddyfile host:/tmp/Caddyfile && ssh host <stack>/apply.sh /tmp/Caddyfile
+# caddy-apply validates first (with the real token, as the caddy user) and keeps
+# the running config when anything is wrong.
+#
+# Needs a build with github.com/caddy-dns/cloudflare and CF_API_TOKEN in the
+# environment (/etc/caddy/caddy.env or <stack>/caddy.env — set up by the scripts).
+# Never put the token in this file — {env.CF_API_TOKEN} is resolved at runtime.
+#
+# Layout: global options -> shared snippets -> sites (one line per typical host)
+#         -> optional catch-all forwarding every other host to the next Caddy
+
+################################################################ global options
+{
+	# Optional — Let's Encrypt sends no expiry mails anymore; useful for account recovery
+	# email admin@example.com
+
+	# While testing: untrusted certs with generous rate limits. Remove for production.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+
+	#>> trusted_proxies — enable when this Caddy sits behind another proxy (e.g. the
+	#   LXC Caddy forwarding its catch-all here): trust its X-Forwarded-For so logs
+	#   and upstreams see the real client IP
+	#servers {
+	#	trusted_proxies static 10.0.0.10/32
+	#}
+	#<< trusted_proxies
+}
+
+################################################################ shared parts
+# Certificates via Cloudflare DNS-01: works for internal-only hosts, no inbound ports needed
+(tls_cf) {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+		# Recursive resolvers used to find the zone's authoritative nameservers;
+		# the TXT record is then checked directly at *.ns.cloudflare.com (port 53)
+		resolvers 9.9.9.9 149.112.112.112
+		# If outbound port 53 to Cloudflare nameservers is blocked, skip the check
+		# and just wait a fixed time before asking the CA to validate:
+		# propagation_timeout -1
+		# propagation_delay 60s
+	}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+		-X-Powered-By
+	}
+}
+
+(access_log) {
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+	}
+}
+
+# Everything every site gets
+(common) {
+	import tls_cf
+	import security_headers
+	import access_log
+	encode zstd gzip
+}
+
+# import proxy <upstream> [<upstream>...]    (several upstreams = load balancing)
+(proxy) {
+	import common
+	reverse_proxy {args[:]}
+}
+
+# Upstream with a self-signed HTTPS certificate (Proxmox, UniFi, iDRAC, ...)
+# import proxy_insecure https://<ip>:<port>
+(proxy_insecure) {
+	import common
+	reverse_proxy {args[:]} {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+################################################################ sites
+app.example.com {
+	import proxy 10.0.0.5:8080
+}
+
+pve.example.com {
+	import proxy_insecure https://10.0.0.2:8006
+}
+
+# Needs more than the defaults: import common + own directives
+grafana.example.com {
+	import common
+	reverse_proxy 10.0.0.6:3000 {
+		health_uri /api/health
+	}
+}
+
+################################################################ catch-all
+#>> catch_all — every other *.example.com host is forwarded to the next Caddy
+#   (e.g. Caddy in Docker), which serves it with its own certificate.
+#   Exact host blocks above always win over the wildcard (Caddy sorts by
+#   specificity). A wildcard matches one label only: a.example.com, not a.b.example.com.
+#   On the next Caddy enable trusted_proxies with this host's IP.
+*.example.com {
+	import tls_cf
+	import access_log
+	reverse_proxy https://10.0.0.20 {
+		# HTTPS upstreams get Host rewritten to the upstream address by default —
+		# keep the requested host, and send it as SNI so the next Caddy picks
+		# (and this one verifies) the right certificate
+		header_up Host {host}
+		transport http {
+			tls_server_name {host}
+		}
+	}
+}
+#<< catch_all

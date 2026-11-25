@@ -67,6 +67,13 @@ validate_stack_dir() {
     esac
 }
 
+# The directory, or its nearest existing parent, must be writable by this user
+stack_dir_writable() {
+    local probe="$1"
+    while [[ ! -e "$probe" ]]; do probe="$(dirname "$probe")"; done
+    [[ -d "$probe" && -w "$probe" ]]
+}
+
 validate_networks() {
     local n
     for n in $1; do
@@ -122,8 +129,14 @@ gather_config() {
     while true; do
         STACK_DIR=$(ask "Stack directory" "$default_dir")
         STACK_DIR="${STACK_DIR%/}"
-        validate_stack_dir "$STACK_DIR" && break
-        log_error "Use an absolute path without spaces, outside system directories"
+        if ! validate_stack_dir "$STACK_DIR"; then
+            log_error "Use an absolute path without spaces, outside system directories"
+            continue
+        fi
+        stack_dir_writable "$STACK_DIR" && break
+        log_error "$(id -un) cannot write $STACK_DIR. Create it for this user (files then belong to"
+        log_error "the user who runs docker compose), then answer again:"
+        log_error "  sudo mkdir -p $STACK_DIR && sudo chown $(id -un): $STACK_DIR"
     done
     load_existing
     if [[ "$EXISTING" == "y" ]]; then
@@ -176,7 +189,13 @@ gather_config() {
 
     log_info "Docker networks to join: Caddy reaches containers by name only on shared networks."
     if [[ "$HAVE_DOCKER" == "y" ]]; then
-        log_info "Existing: $(docker network ls --format '{{.Name}}' | grep -vxE 'bridge|host|none' | tr '\n' ' ')"
+        # Only standalone networks (docker network create): compose-owned ones carry the
+        # com.docker.compose.network label and are recreated with their project
+        local ext
+        ext=$(docker network ls -q | xargs -r docker network inspect \
+                --format '{{.Name}} {{index .Labels "com.docker.compose.network"}}' 2>/dev/null \
+            | awk 'NF == 1 && $1 !~ /^(bridge|host|none)$/ {print $1}' | sort | tr '\n' ' ')
+        log_info "Existing external networks: ${ext:-none}"
     fi
     while true; do
         NETWORKS=$(ask_optional "Networks (space separated, external)" "$NETWORKS")

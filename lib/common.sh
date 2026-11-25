@@ -3,6 +3,7 @@
 # Source: SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)", then
 #   source "$SCRIPT_DIR/../lib/common.sh"     from pve/, utils/, disk/
 #   source "$SCRIPT_DIR/../../lib/common.sh"  from apps/<app>/
+#   source "$SCRIPT_DIR/../../../lib/common.sh"  from apps/<app>/<variant>/ (e.g. apps/caddy/install)
 
 [[ -n "${_LIB_COMMON_LOADED:-}" ]] && return 0
 _LIB_COMMON_LOADED=1
@@ -1292,7 +1293,7 @@ get_yn() {
 }
 
 ############################################################# CADDY + CLOUDFLARE DNS
-# Shared by apps/caddy/caddy-install_cloudflare.sh (LXC/VM) and apps/caddy/docker-setup_caddy.sh
+# Shared by apps/caddy/install/caddy-install_cloudflare.sh (LXC/VM) and apps/caddy/docker/docker-setup_caddy.sh
 
 # conf_get FILE KEY — value of KEY=value (last one wins). Plain text parsing,
 # nothing in the file is executed. Surrounding quotes are stripped.

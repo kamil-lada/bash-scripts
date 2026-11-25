@@ -1,0 +1,5 @@
+# Inner Caddy: plain HTTP behind the edge Caddy, no certificates -> stock image, no plugins.
+# Used by docker-setup_caddy.sh in inner mode. Kept as a build (not image: caddy:2) so
+# install and update are the same for both modes: docker compose build --pull.
+ARG CADDY_VERSION=2
+FROM caddy:${CADDY_VERSION}

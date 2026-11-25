@@ -3,10 +3,12 @@
 #   LXC / VM (caddy-install_cloudflare.sh), file /etc/caddy/Caddyfile:
 #     scp Caddyfile host:/tmp/Caddyfile && ssh host sudo caddy-apply /tmp/Caddyfile
 #     or git pull into /etc/caddy on the host, then:  sudo caddy-apply
-#   Docker (docker-setup_caddy.sh), file <stack>/conf/Caddyfile:
-#     scp Caddyfile host:/tmp/Caddyfile && ssh host <stack>/apply.sh /tmp/Caddyfile
-# caddy-apply validates first (with the real token, as the caddy user) and keeps
-# the running config when anything is wrong.
+#     caddy-apply validates first (with the real token, as the caddy user) and keeps
+#     the running config when anything is wrong.
+#   Docker standalone (docker-setup_caddy.sh), file <stack>/conf/Caddyfile:
+#     copy it there, then: docker compose restart caddy
+#     (check first: docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile)
+# Docker inner mode (behind the edge) uses caddy-Caddyfile.inner.example instead.
 #
 # Needs a build with github.com/caddy-dns/cloudflare and CF_API_TOKEN in the
 # environment (/etc/caddy/caddy.env or <stack>/caddy.env — set up by the scripts).

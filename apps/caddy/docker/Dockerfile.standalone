@@ -1,0 +1,12 @@
+# Caddy + DNS plugins (Cloudflare DNS-01), built with xcaddy on the official builder image.
+# Used by docker-setup_caddy.sh in standalone mode (Caddy terminates TLS itself).
+ARG CADDY_VERSION=2
+FROM caddy:${CADDY_VERSION}-builder AS builder
+ARG CADDY_PLUGINS="github.com/caddy-dns/cloudflare"
+RUN set -eu; \
+    args=""; \
+    for p in $CADDY_PLUGINS; do args="$args --with $p"; done; \
+    xcaddy build $args
+
+FROM caddy:${CADDY_VERSION}
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

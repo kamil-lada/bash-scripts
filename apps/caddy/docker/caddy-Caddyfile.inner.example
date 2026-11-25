@@ -1,0 +1,88 @@
+# Inner Caddy — plain HTTP behind the edge Caddy (TLS ends at the edge).
+# The edge forwards every host it does not serve itself to http://<docker host>:8090;
+# this file maps those host names to containers by name (shared Docker networks).
+#
+# Check:  docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile
+#         (works while the container is down; restarting with a broken file stops Caddy)
+# Apply:  docker compose restart caddy
+#   (no interruption: docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile)
+
+################################################################ global options
+{
+	# No certificates here: the edge terminates TLS
+	auto_https off
+
+	# Process/error log as JSON file (Graylog Sidecar reads it, homelab LAB-49);
+	# exclude: otherwise access lines land here too
+	log default {
+		output file /var/log/caddy/caddy.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+		format json
+		exclude http.log.access
+	}
+
+	servers {
+		# Trust the edge's X-Forwarded-For / -Proto: containers see the real client
+		# IP and https as scheme (needed for correct redirects and cookies)
+		trusted_proxies static 10.0.0.10/32
+	}
+}
+
+################################################################ shared parts
+# Access log (JSON, same format as the edge). The edge skips hosts it forwards here
+# (log_skip), so every request is logged once: edge hosts at the edge, docker hosts here.
+(access_log) {
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+	}
+}
+
+(security_headers) {
+	header {
+		-Server
+		-X-Powered-By
+	}
+}
+
+# import host <name> <proxy|proxy_insecure> <upstream...>  ->  <name>.example.com
+(host) {
+	@{args[0]} host {args[0]}.example.com
+	handle @{args[0]} {
+		import {args[1]} {args[2:]}
+	}
+}
+
+# Plain HTTP container port
+(proxy) {
+	import security_headers
+	reverse_proxy {args[:]}
+}
+
+# Container with a self-signed HTTPS port (e.g. Portainer 9443)
+(proxy_insecure) {
+	import security_headers
+	reverse_proxy {args[:]} {
+		header_up Host {host}
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+################################################################ hosts
+:8090 {
+	import access_log
+
+	import host app proxy app:8080
+	import host portainer proxy_insecure https://portainer:9443
+
+	# Unknown host: clear answer instead of an empty 200
+	handle {
+		respond "No inner route for {host}" 404
+	}
+}

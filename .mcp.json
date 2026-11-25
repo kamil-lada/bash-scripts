@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "vikunja": {
-      "type": "http",
-      "url": "https://vikunja.babum.ovh/api/v2/mcp",
-      "headersHelper": "/data/stacks/_agents/vikunja-headers.sh /home/agent/.config/bash-scripts/env"
-    }
-  }
-}

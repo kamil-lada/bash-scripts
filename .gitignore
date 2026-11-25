@@ -1,1 +1,3 @@
 /.fleet
+# Local agent config (private board URL) — not in this public repo
+.mcp.json

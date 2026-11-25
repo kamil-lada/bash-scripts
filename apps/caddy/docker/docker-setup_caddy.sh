@@ -6,7 +6,7 @@
 #               published on <docker host IP>:8090 only, edge trusted as proxy
 #   standalone  Caddy terminates TLS itself: Cloudflare DNS-01 build, ports 80/443
 #
-# Generated in the stack directory (default /data/stacks/caddy):
+# Generated in the stack directory (default /opt/stacks/caddy):
 #   compose.yaml
 #   Dockerfile.<mode>     copy of apps/caddy/docker/Dockerfile.<mode>
 #   .env                  compose settings — plain KEY=value
@@ -125,7 +125,6 @@ gather_config() {
     fi
 
     local default_dir=/opt/stacks/caddy
-    [[ -d /data/stacks ]] && default_dir=/data/stacks/caddy
     while true; do
         STACK_DIR=$(ask "Stack directory" "$default_dir")
         STACK_DIR="${STACK_DIR%/}"

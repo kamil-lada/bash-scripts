@@ -12,7 +12,7 @@
 	# No certificates here: the edge terminates TLS
 	auto_https off
 
-	# Process/error log as JSON file (Graylog Sidecar reads it, homelab LAB-49);
+	# Process/error log as JSON file (easy to ship, e.g. with a log collector);
 	# exclude: otherwise access lines land here too
 	log default {
 		output file /var/log/caddy/caddy.log {
@@ -26,7 +26,7 @@
 	servers {
 		# Trust the edge's X-Forwarded-For / -Proto: containers see the real client
 		# IP and https as scheme (needed for correct redirects and cookies)
-		trusted_proxies static 10.0.0.10/32
+		trusted_proxies static 192.0.2.10/32
 	}
 }
 
@@ -63,7 +63,7 @@
 	reverse_proxy {args[:]}
 }
 
-# Container with a self-signed HTTPS port (e.g. Portainer 9443)
+# Container with a self-signed HTTPS port
 (proxy_insecure) {
 	import security_headers
 	reverse_proxy {args[:]} {
@@ -79,7 +79,7 @@
 	import access_log
 
 	import host app proxy app:8080
-	import host portainer proxy_insecure https://portainer:9443
+	import host admin proxy_insecure https://admin-ui:8443
 
 	# Unknown host: clear answer instead of an empty 200
 	handle {

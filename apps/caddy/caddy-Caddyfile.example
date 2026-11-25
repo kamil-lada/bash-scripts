@@ -1,4 +1,5 @@
 # Caddyfile — the ONLY Caddy config file, kept in git and deployed by automation.
+# Example IPs use 192.0.2.0/24 (documentation range): replace them with yours.
 # Same file for both setups:
 #   LXC / VM (caddy-install_cloudflare.sh), file /etc/caddy/Caddyfile:
 #     scp Caddyfile host:/tmp/Caddyfile && ssh host sudo caddy-apply /tmp/Caddyfile
@@ -29,7 +30,7 @@
 	#   LXC Caddy forwarding its catch-all here): trust its X-Forwarded-For so logs
 	#   and upstreams see the real client IP
 	#servers {
-	#	trusted_proxies static 10.0.0.10/32
+	#	trusted_proxies static 192.0.2.10/32
 	#}
 	#<< trusted_proxies
 }
@@ -43,7 +44,7 @@
 		# the TXT record is then checked directly at *.ns.cloudflare.com (port 53)
 		resolvers 9.9.9.9 149.112.112.112
 		# If outbound port 53 is blocked OR transparently redirected to a local
-		# resolver (e.g. pfSense NAT -> Pi-hole), the check sees a cached answer and
+		# resolver (e.g. a router that redirects all DNS to a local resolver), the check sees a cached answer and
 		# times out ("timed out waiting for record to fully propagate"). Then skip
 		# the check and just wait a fixed time before asking the CA to validate:
 		# propagation_timeout -1
@@ -98,17 +99,17 @@
 
 ################################################################ sites
 app.example.com {
-	import proxy 10.0.0.5:8080
+	import proxy 192.0.2.5:8080
 }
 
 pve.example.com {
-	import proxy_insecure https://10.0.0.2:8006
+	import proxy_insecure https://192.0.2.2:8006
 }
 
 # Needs more than the defaults: import common + own directives
 grafana.example.com {
 	import common
-	reverse_proxy 10.0.0.6:3000 {
+	reverse_proxy 192.0.2.6:3000 {
 		health_uri /api/health
 	}
 }
@@ -122,7 +123,7 @@ grafana.example.com {
 *.example.com {
 	import tls_cf
 	import access_log
-	reverse_proxy https://10.0.0.20 {
+	reverse_proxy https://192.0.2.20 {
 		# HTTPS upstreams get Host rewritten to the upstream address by default —
 		# keep the requested host, and send it as SNI so the next Caddy picks
 		# (and this one verifies) the right certificate

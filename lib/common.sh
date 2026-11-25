@@ -1384,13 +1384,13 @@ caddy_render_template() {
     local src="$1" dest="$2" zone="$3" upstream="$4" trusted="$5"
     local -a expr=(-e "s/example\.com/$zone/g")
     if [[ -n "$upstream" ]]; then
-        expr+=(-e "s|https://10\.0\.0\.20|https://$upstream|")
+        expr+=(-e "s|https://192\.0\.2\.20|https://$upstream|")
     else
         expr+=(-e '/^#>> catch_all/,/^#<< catch_all/d')
     fi
     if [[ -n "$trusted" ]]; then
         expr+=(-e '/#>> trusted_proxies/,/#<< trusted_proxies/{/#>>\|#<<\|#   /!s/^\t#/\t/}'
-               -e "s|static 10\.0\.0\.10/32|static $trusted|")
+               -e "s|static 192\.0\.2\.10/32|static $trusted|")
     fi
     sed "${expr[@]}" "$src" > "$dest"
 }

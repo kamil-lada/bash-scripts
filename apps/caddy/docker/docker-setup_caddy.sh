@@ -11,6 +11,9 @@
 #   Dockerfile.<mode>     copy of apps/caddy/docker/Dockerfile.<mode>
 #   .env                  compose settings — plain KEY=value
 #   caddy.env             CF_API_TOKEN (standalone only, 0640)
+#   docker-user-caddy.service  inner only, when allowed sources are given: systemd
+#                         oneshot that limits the published port to those sources
+#                         (DOCKER-USER chain); you install it, see the end of the run
 #   conf/Caddyfile        starter config, only when missing (never overwritten);
 #                         conf/ is mounted as a directory -> /etc/caddy (read-only)
 #   data/ config/ logs/   Caddy storage
@@ -46,6 +49,7 @@ TZ_NAME=""
 BIND_IP=""
 INNER_PORT="8090"
 TRUSTED_PROXIES=""
+ALLOWED_SRC=""
 CATCH_ALL_UPSTREAM=""
 INSTALL_STARTER="n"
 EXISTING="n"
@@ -100,6 +104,7 @@ load_existing() {
     TZ_NAME=$(conf_get "$env" TZ)
     BIND_IP=$(conf_get "$env" CADDY_BIND_IP)
     INNER_PORT=$(conf_get "$env" CADDY_PORT)
+    ALLOWED_SRC=$(conf_get "$env" CADDY_ALLOWED_SRC)
     PLUGINS=$(conf_get "$env" CADDY_PLUGINS)
     validate_caddy_plugins "$PLUGINS" || { log_error "Invalid CADDY_PLUGINS in $env"; exit 1; }
     for p in $PLUGINS; do
@@ -178,6 +183,13 @@ gather_config() {
             validate_port "$INNER_PORT" && break
             log_error "Invalid port"
         done
+        log_info "Docker publishes ports past the host firewall. Give the edge Caddy IP(s) to"
+        log_info "generate a firewall unit that drops every other source on $BIND_IP:$INNER_PORT."
+        while true; do
+            ALLOWED_SRC=$(ask_optional "Allowed source IPs/CIDRs (empty = no firewall unit)" "$ALLOWED_SRC")
+            [[ -z "$ALLOWED_SRC" ]] || validate_ip_cidr_list "$ALLOWED_SRC" && break
+            log_error "Use IPv4 addresses or CIDRs separated by spaces"
+        done
     fi
 
     while true; do
@@ -217,7 +229,7 @@ gather_config() {
         INSTALL_STARTER="y"
         if [[ "$MODE" == "inner" ]]; then
             while true; do
-                TRUSTED_PROXIES=$(ask "Edge Caddy IP(s) to trust (X-Forwarded-For/-Proto)" "")
+                TRUSTED_PROXIES=$(ask "Edge Caddy IP(s) to trust (X-Forwarded-For/-Proto)" "$ALLOWED_SRC")
                 validate_ip_cidr_list "$TRUSTED_PROXIES" && break
                 log_error "Use IPv4 addresses or CIDRs separated by spaces"
             done
@@ -245,6 +257,8 @@ gather_config() {
         printf "  %-24s %s\n" "Ports:" "80, 443/tcp, 443/udp"
     else
         printf "  %-24s %s\n" "Published:" "$BIND_IP:$INNER_PORT (plain HTTP)"
+        printf "  %-24s %s\n" "Firewall unit:" \
+            "$([[ -n "$ALLOWED_SRC" ]] && echo "only from $ALLOWED_SRC" || echo "none (port open to every source)")"
     fi
     printf "  %-24s %s\n" "Networks:" "${NETWORKS:-none}"
     printf "  %-24s %s\n" "Timezone:" "$TZ_NAME"
@@ -316,6 +330,59 @@ ${net_service}${net_top}
 EOF
 }
 
+# systemd oneshot: published inner port only from ALLOWED_SRC (DOCKER-USER chain).
+# - DOCKER-USER sees packets after DNAT -> match the ORIGINAL destination (conntrack)
+# - one RETURN per allowed source (= continue with Docker's own rules) + one DROP;
+#   iptables cannot negate a list of sources
+# - start: remove every rule with our comment tag, then insert DROP and the RETURNs
+#   above it -> idempotent, order always right, removed sources vanish; stop: remove them
+# - PartOf/WantedBy docker.service: re-applied on every Docker (re)start and at boot
+# Limits: IPv4 only (add ip6tables rules if the port is also published on IPv6); needs
+# the iptables firewall backend (Docker 29's nftables backend has no DOCKER-USER chain);
+# never save these rules with iptables-persistent (it also saves Docker's own chains)
+write_firewall_unit() {
+    local unit="$STACK_DIR/docker-user-caddy.service"
+    if [[ "$MODE" != "inner" || -z "$ALLOWED_SRC" ]]; then
+        rm -f "$unit"
+        return 0
+    fi
+    # Every rule carries the comment tag: cleanup removes exactly our rules, also
+    # those of sources dropped from the list since the last start
+    local tag="docker-user-caddy-$INNER_PORT"
+    local m="-p tcp -m conntrack --ctdir ORIGINAL --ctorigdst $BIND_IP --ctorigdstport $INNER_PORT -m comment --comment $tag"
+    # $$: systemd turns it into a literal $ for the shell variables
+    local del="iptables -S DOCKER-USER | grep -F -e '--comment $tag' | sed 's/^-A /-D /' | while read -r r; do iptables \$\$r; done"
+    local add="iptables -I DOCKER-USER $m -j DROP && for s in $ALLOWED_SRC; do iptables -I DOCKER-USER $m -s \$\$s -j RETURN || exit 1; done"
+    cat > "$unit" <<UNIT
+$MANAGED_MARK
+# Published Caddy port $BIND_IP:$INNER_PORT only from: $ALLOWED_SRC (all other sources dropped).
+# Install:  sudo install -m 0644 docker-user-caddy.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now docker-user-caddy.service
+# Verify:   sudo iptables -S DOCKER-USER | grep 'ctorigdstport $INNER_PORT'
+# IPv4 only. Needs Docker's iptables firewall backend (the nftables backend of Docker 29+
+# has no DOCKER-USER chain -> the unit fails with a message). Do not save these rules with
+# iptables-persistent, and never enable an nftables.conf with "flush ruleset" next to Docker.
+[Unit]
+Description=DOCKER-USER: Caddy port $BIND_IP:$INNER_PORT only from $ALLOWED_SRC
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# Fail loudly instead of leaving the port open when the chain does not exist
+ExecStartPre=/bin/sh -c "iptables -nL DOCKER-USER >/dev/null 2>&1 || { echo 'no DOCKER-USER chain: Docker uses the nftables firewall backend or is not running; port NOT restricted' >&2; exit 1; }"
+ExecStart=/bin/sh -c "$del; $add"
+ExecStop=/bin/sh -c "$del; true"
+
+[Install]
+WantedBy=docker.service
+UNIT
+    chmod 0644 "$unit"
+    log_success "Firewall unit: docker-user-caddy.service (install it, see below)"
+}
+
 write_stack() {
     log_section "Writing $STACK_DIR"
     mkdir -p "$STACK_DIR/conf" "$STACK_DIR/data" "$STACK_DIR/config" "$STACK_DIR/logs"
@@ -335,6 +402,7 @@ write_stack() {
         echo "CADDY_NETWORKS=$NETWORKS"
         echo "CADDY_BIND_IP=$BIND_IP"
         echo "CADDY_PORT=$INNER_PORT"
+        echo "CADDY_ALLOWED_SRC=$ALLOWED_SRC"
         echo "CF_ZONE=$CF_ZONE"
         echo "TZ=$TZ_NAME"
     } > "$STACK_DIR/.env"
@@ -348,6 +416,7 @@ write_stack() {
     fi
 
     write_compose
+    write_firewall_unit
 
     if [[ "$INSTALL_STARTER" == "y" ]]; then
         if [[ "$MODE" == "inner" ]]; then
@@ -397,7 +466,15 @@ main() {
     echo ""
     if [[ "$MODE" == "inner" ]]; then
         log_info "Edge: point its fallback to http://$BIND_IP:$INNER_PORT"
-        log_info "Limit $BIND_IP:$INNER_PORT to the edge (DOCKER-USER chain or host firewall) — anything on that network can reach it otherwise"
+        if [[ -n "$ALLOWED_SRC" ]]; then
+            echo ""
+            echo "  # limit $BIND_IP:$INNER_PORT to $ALLOWED_SRC (DOCKER-USER firewall unit):"
+            echo "  sudo install -m 0644 $STACK_DIR/docker-user-caddy.service /etc/systemd/system/"
+            echo "  sudo systemctl daemon-reload && sudo systemctl enable --now docker-user-caddy.service"
+            echo "  sudo iptables -S DOCKER-USER | grep 'ctorigdstport $INNER_PORT'   # verify"
+        else
+            log_warning "$BIND_IP:$INNER_PORT is open to every source that can reach it — re-run with allowed sources to get a firewall unit"
+        fi
     fi
 }
 

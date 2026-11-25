@@ -14,8 +14,8 @@
 #     alternatives link to /usr/bin/caddy.custom = build with caddy-dns/cloudflare
 #
 # Installed tools (standalone, do not need this repository):
-#   /usr/local/sbin/caddy-update   update Caddy + plugins (apps/caddy-update.sh)
-#   /usr/local/sbin/caddy-apply    validate + activate a Caddyfile (apps/caddy-apply.sh)
+#   /usr/local/sbin/caddy-update   update Caddy + plugins (apps/caddy/caddy-update.sh)
+#   /usr/local/sbin/caddy-apply    validate + activate a Caddyfile (apps/caddy/caddy-apply.sh)
 #
 # Files:
 #   /etc/caddy/Caddyfile           the config (deployed by automation)
@@ -29,7 +29,7 @@
 set -eEuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../../lib/common.sh"
 
 LOGFILE="/var/log/caddy-install.log"
 

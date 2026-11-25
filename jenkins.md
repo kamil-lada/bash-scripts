@@ -119,7 +119,7 @@ Caddy/NPM route config, job creation, Docker agent on the dev VM, Terraform/ephe
 
 ## Build session results (2026-11-18)
 
-Scripts are in this repo as `apps/jenkins-dump.sh` (S3), `apps/jenkins-controller.sh` (S1) and `apps/jenkins-worker.sh` (S2). Each one is standalone (no `lib/common.sh`). They were tested end to end on rootless Docker: S1 ran in a Debian 13 container as root, and the workers were Debian 13 containers.
+Scripts are in this repo as `apps/jenkins/jenkins-dump.sh` (S3), `apps/jenkins/jenkins-controller.sh` (S1) and `apps/jenkins/jenkins-worker.sh` (S2). Each one is standalone (no `lib/common.sh`). They were tested end to end on rootless Docker: S1 ran in a Debian 13 container as root, and the workers were Debian 13 containers.
 
 ### Verify results
 

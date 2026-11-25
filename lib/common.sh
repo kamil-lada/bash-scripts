@@ -1,6 +1,8 @@
 #!/bin/bash
 # Shared library for all scripts in this repository (apps/, pve/, ...)
-# Source: source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/common.sh"
+# Source: SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)", then
+#   source "$SCRIPT_DIR/../lib/common.sh"     from pve/, utils/, disk/
+#   source "$SCRIPT_DIR/../../lib/common.sh"  from apps/<app>/
 
 [[ -n "${_LIB_COMMON_LOADED:-}" ]] && return 0
 _LIB_COMMON_LOADED=1
@@ -1290,7 +1292,7 @@ get_yn() {
 }
 
 ############################################################# CADDY + CLOUDFLARE DNS
-# Shared by apps/caddy-install_cloudflare.sh (LXC/VM) and apps/docker-setup_caddy.sh
+# Shared by apps/caddy/caddy-install_cloudflare.sh (LXC/VM) and apps/caddy/docker-setup_caddy.sh
 
 # conf_get FILE KEY — value of KEY=value (last one wins). Plain text parsing,
 # nothing in the file is executed. Surrounding quotes are stripped.
@@ -1373,7 +1375,7 @@ ask_cf_token() {
 }
 
 # caddy_render_template SRC DEST ZONE CATCH_ALL_UPSTREAM TRUSTED_PROXIES
-# Turns apps/caddy-Caddyfile.example into a starter Caddyfile:
+# Turns apps/caddy/caddy-Caddyfile.example into a starter Caddyfile:
 #   example.com            -> ZONE
 #   #>> catch_all section  -> kept with upstream CATCH_ALL_UPSTREAM, removed when empty
 #   #>> trusted_proxies    -> uncommented with TRUSTED_PROXIES, left commented when empty

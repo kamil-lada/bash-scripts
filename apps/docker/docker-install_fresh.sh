@@ -14,7 +14,7 @@
 set -eEuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../../lib/common.sh"
 
 LOGFILE="/var/log/docker-install.log"
 STATE_FILE="/etc/docker-install.state"

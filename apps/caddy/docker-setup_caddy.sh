@@ -12,8 +12,8 @@
 #   caddy.env                  CF_API_TOKEN (0640 root:docker)
 #   conf/Caddyfile             the config, mounted as directory -> /etc/caddy (read-only)
 #   data/ config/ logs/        certificates, autosave, access logs
-#   apply.sh                   validate + activate a Caddyfile    (apps/caddy-docker-apply.sh)
-#   update.sh                  rebuild with latest Caddy/plugins  (apps/caddy-docker-update.sh)
+#   apply.sh                   validate + activate a Caddyfile    (apps/caddy/caddy-docker-apply.sh)
+#   update.sh                  rebuild with latest Caddy/plugins  (apps/caddy/caddy-docker-update.sh)
 #
 # Re-running regenerates everything except conf/Caddyfile and data.
 #
@@ -21,7 +21,7 @@
 set -eEuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../../lib/common.sh"
 
 LOGFILE="/var/log/docker-setup-caddy.log"
 
@@ -100,7 +100,7 @@ preflight() {
     check_root
 
     if ! command -v docker &>/dev/null || ! docker info &>/dev/null; then
-        log_error "Docker is not installed or not running — run $SCRIPT_DIR/docker-install_fresh.sh first"
+        log_error "Docker is not installed or not running — run $SCRIPT_DIR/../docker/docker-install_fresh.sh first"
         exit 1
     fi
     if ! docker compose version &>/dev/null; then

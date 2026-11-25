@@ -40,8 +40,10 @@
 		# Recursive resolvers used to find the zone's authoritative nameservers;
 		# the TXT record is then checked directly at *.ns.cloudflare.com (port 53)
 		resolvers 9.9.9.9 149.112.112.112
-		# If outbound port 53 to Cloudflare nameservers is blocked, skip the check
-		# and just wait a fixed time before asking the CA to validate:
+		# If outbound port 53 is blocked OR transparently redirected to a local
+		# resolver (e.g. pfSense NAT -> Pi-hole), the check sees a cached answer and
+		# times out ("timed out waiting for record to fully propagate"). Then skip
+		# the check and just wait a fixed time before asking the CA to validate:
 		# propagation_timeout -1
 		# propagation_delay 60s
 	}
